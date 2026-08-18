@@ -15,7 +15,6 @@ import {
   readFile,
   rm,
   unlink,
-  writeFile,
 } from 'fs/promises';
 import detectUsb from 'detect-usb';
 import path from 'path';
@@ -117,7 +116,7 @@ import {
   stopListeningAndSend,
 } from './host';
 import { assertInteger, assertString } from '../common/asserts';
-import { resolveHtmlPath } from './util';
+import { downloadFile, resolveHtmlPath } from './util';
 import {
   assignOfflineModeSetStation,
   assignOfflineModeSetStream,
@@ -184,30 +183,6 @@ export default function setupIPCs(
   function addReplayDir(dir: string, usbKey: string) {
     replayDirs.push({ dir, usbKey });
     mainWindow.webContents.send('usbstorage', dir, Boolean(usbKey));
-  }
-  // Helper to download a file from a URL to a given path
-  async function downloadFile(url: string, dest: string): Promise<void> {
-    let response;
-    try {
-      response = await fetch(url, {
-        signal: AbortSignal.timeout(15000),
-      });
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Timeout downloading '${url}'`);
-      }
-      throw error;
-    }
-
-    if (!response.ok) {
-      throw new Error(`Failed to get '${url}' (${response.status})`);
-    }
-
-    if (!response.body) {
-      throw new Error(`No response body for '${url}'`);
-    }
-
-    await writeFile(dest, Buffer.from(await response.arrayBuffer()));
   }
 
   let slpDownloadStatus: {

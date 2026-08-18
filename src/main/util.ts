@@ -4,6 +4,31 @@ import path from 'path';
 import { execSync } from 'child_process';
 import { LookupOptions } from 'dns';
 import { IPv4, IPv6, parse } from 'ipaddr.js';
+import { writeFile } from 'fs/promises';
+
+export async function downloadFile(url: string, dest: string): Promise<void> {
+  let response;
+  try {
+    response = await fetch(url, {
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Timeout downloading '${url}'`);
+    }
+    throw error;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to get '${url}' (${response.status})`);
+  }
+
+  if (!response.body) {
+    throw new Error(`No response body for '${url}'`);
+  }
+
+  await writeFile(dest, Buffer.from(await response.arrayBuffer()));
+}
 
 export function resolveHtmlPath(htmlFileName: string) {
   if (process.env.NODE_ENV === 'development') {
