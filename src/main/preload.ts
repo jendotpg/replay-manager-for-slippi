@@ -28,6 +28,7 @@ import {
   SelectedSetChain,
   OfflineModeStatus,
   StartggGame,
+  BeamerFleet,
 } from '../common/types';
 
 const electronHandler = {
@@ -44,9 +45,29 @@ const electronHandler = {
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
     ipcRenderer.invoke('chooseReplaysDir'),
+  getBeamerAddress: (): Promise<string> =>
+    ipcRenderer.invoke('getBeamerAddress'),
+  copyFromBeamer: (addressOrHost: string): Promise<string> =>
+    ipcRenderer.invoke('copyFromBeamer', addressOrHost),
+  refreshFromBeamer: (origin: string): Promise<void> =>
+    ipcRenderer.invoke('refreshFromBeamer', origin),
   getTrashDir: (): Promise<string> => ipcRenderer.invoke('getTrashDir'),
   chooseTrashDir: (): Promise<string> => ipcRenderer.invoke('chooseTrashDir'),
   clearTrashDir: (): Promise<void> => ipcRenderer.invoke('clearTrashDir'),
+  getBeamerCacheSize: (): Promise<{ files: number; bytes: number }> =>
+    ipcRenderer.invoke('getBeamerCacheSize'),
+  clearBeamerCache: (): Promise<void> => ipcRenderer.invoke('clearBeamerCache'),
+  startBeamerBrowse: (): Promise<void> =>
+    ipcRenderer.invoke('startBeamerBrowse'),
+  stopBeamerBrowse: (): Promise<void> => ipcRenderer.invoke('stopBeamerBrowse'),
+  getBeamerFleet: (): Promise<BeamerFleet> =>
+    ipcRenderer.invoke('getBeamerFleet'),
+  refreshBeamerStatus: (host: string): Promise<void> =>
+    ipcRenderer.invoke('refreshBeamerStatus', host),
+  resetBeamerStation: (host: string): Promise<void> =>
+    ipcRenderer.invoke('resetBeamerStation', host),
+  resetAllBeamerStations: (): Promise<string[]> =>
+    ipcRenderer.invoke('resetAllBeamerStations'),
   deleteReplaysDir: (usedFilenames: string[]): Promise<boolean> =>
     ipcRenderer.invoke('deleteReplaysDir', usedFilenames),
   deleteSelectedReplays: (
@@ -360,10 +381,18 @@ const electronHandler = {
       event: IpcRendererEvent,
       newDir: string,
       newIsUsb: boolean,
+      newBeamerOrigin: string,
+      newBeamerName: string,
     ) => void,
   ) => {
     ipcRenderer.removeAllListeners('usbstorage');
     ipcRenderer.on('usbstorage', callback);
+  },
+  onBeamerFleet: (
+    callback: (event: IpcRendererEvent, fleet: BeamerFleet) => void,
+  ) => {
+    ipcRenderer.removeAllListeners('beamerFleet');
+    ipcRenderer.on('beamerFleet', callback);
   },
   update: (): Promise<void> => ipcRenderer.invoke('update'),
   isMac: process.platform === 'darwin',

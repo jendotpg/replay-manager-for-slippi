@@ -26,6 +26,8 @@ import { createWriteStream } from 'fs';
 import yauzl from 'yauzl-promise';
 import { pipeline } from 'stream/promises';
 import {
+  BeamerFleet,
+  BeamerStation,
   ChallongeMatchItem,
   Context,
   CopySettings,
@@ -41,6 +43,7 @@ import {
   ReportSettings,
   SelectedSetChain,
   Set,
+  SlpDownloadStatus,
   StartggGame,
   StartggSet,
 } from '../common/types';
@@ -118,6 +121,27 @@ import {
 import { assertInteger, assertString } from '../common/asserts';
 import { downloadFile, resolveHtmlPath } from './util';
 import {
+  beamerDirFor,
+  beamerName,
+  clearBeamerCache,
+  getBeamerCacheSize,
+  getBeamerIndex,
+  listCachedReplays,
+  pruneBeamerDir,
+  pullFromBeamer,
+  toBeamerOrigin,
+} from './beamer';
+import {
+  BeamerBrowseHandle,
+  browseForBeamers,
+  FLEET_POLL_MS,
+  getBeamerStatus,
+  postBeamerStatus,
+  resetBeamer,
+  stationFromStatus,
+  unreportedStation,
+} from './discover';
+import {
   assignOfflineModeSetStation,
   assignOfflineModeSetStream,
   callOfflineModeSet,
@@ -143,12 +167,15 @@ import {
 type ReplayDir = {
   dir: string;
   usbKey: string;
+  beamerOrigin: string;
+  beamerName: string;
 };
 
 let entrantsWindow: BrowserWindow | null = null;
 
 const protocolLoadFullPath = path.join(app.getPath('userData'), 'protocol');
 const undoDstFullPath = path.join(app.getPath('userData'), 'undo');
+const beamerFullPath = path.join(app.getPath('userData'), 'beamer');
 
 export default function setupIPCs(
   mainWindow: BrowserWindow,
@@ -180,9 +207,25 @@ export default function setupIPCs(
   let replayDirs: ReplayDir[] = [];
   const knownUsbs = new Map<string, boolean>();
   // Helper to add a new replay directory and notify renderer
-  function addReplayDir(dir: string, usbKey: string) {
-    replayDirs.push({ dir, usbKey });
-    mainWindow.webContents.send('usbstorage', dir, Boolean(usbKey));
+  function addReplayDir(
+    dir: string,
+    usbKey: string,
+    beamerOrigin = '',
+    beamerNameOrEmpty = '',
+  ) {
+    replayDirs.push({
+      dir,
+      usbKey,
+      beamerOrigin,
+      beamerName: beamerNameOrEmpty,
+    });
+    mainWindow.webContents.send(
+      'usbstorage',
+      dir,
+      Boolean(usbKey),
+      beamerOrigin,
+      beamerNameOrEmpty,
+    );
   }
 
   let slpDownloadStatus: {
@@ -282,6 +325,8 @@ export default function setupIPCs(
       'usbstorage',
       newDir ? newDir.dir : '',
       Boolean(newDir?.usbKey),
+      newDir?.beamerOrigin ?? '',
+      newDir?.beamerName ?? '',
     );
   };
   detectUsb.removeAllListeners('insert');
@@ -347,8 +392,312 @@ export default function setupIPCs(
       }
     }
     [chosenReplaysDir] = openDialogRes.filePaths;
-    replayDirs.push({ dir: chosenReplaysDir, usbKey: '' });
+    replayDirs.push({
+      dir: chosenReplaysDir,
+      usbKey: '',
+      beamerOrigin: '',
+      beamerName: '',
+    });
     return chosenReplaysDir;
+  });
+
+  const sendBeamerDownloadStatus = (status: SlpDownloadStatus) => {
+    slpDownloadStatus = status;
+    mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
+  };
+
+  let beamerAddress = store.get('beamerAddress', '') as string;
+  ipcMain.removeHandler('getBeamerAddress');
+  ipcMain.handle('getBeamerAddress', () => beamerAddress);
+
+  const beamerStations = new Map<string, BeamerStation>();
+  let beamerBrowse: BeamerBrowseHandle | null = null;
+  let beamerPollTimer: NodeJS.Timeout | null = null;
+  let beamerFleetError = '';
+
+  const sendBeamerFleet = () => {
+    const fleet: BeamerFleet = {
+      stations: Array.from(beamerStations.values()).sort((a, b) =>
+        (a.stationName || a.stationId || a.address).localeCompare(
+          b.stationName || b.stationId || b.address,
+        ),
+      ),
+      browsing: beamerBrowse !== null,
+      error: beamerFleetError,
+    };
+    mainWindow.webContents.send('beamerFleet', fleet);
+  };
+
+  const pruneBeamerCacheFor = async (station: BeamerStation) => {
+    if (!station.stationId) {
+      return;
+    }
+    const origin = toBeamerOrigin(station.address);
+    const dest = beamerDirFor(beamerFullPath, origin, station.stationId);
+    const cached = await listCachedReplays(dest);
+    if (cached.length === 0) {
+      return;
+    }
+
+    const { files } = await getBeamerIndex(origin);
+    const stale = await pruneBeamerDir(
+      dest,
+      cached,
+      files.map((file) => file.name),
+    );
+    if (stale.length === 0) {
+      return;
+    }
+
+    const current =
+      replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
+    if (current?.dir === dest) {
+      mainWindow.webContents.send(
+        'usbstorage',
+        current.dir,
+        Boolean(current.usbKey),
+        current.beamerOrigin,
+        current.beamerName,
+      );
+    }
+  };
+
+  type BeamerBase = Pick<BeamerStation, 'address' | 'host'>;
+  const refreshBeamerStation = async (base: BeamerBase, post: boolean) => {
+    const origin = toBeamerOrigin(base.address);
+    const result = post
+      ? await postBeamerStatus(origin)
+      : await getBeamerStatus(origin);
+    const station =
+      result.kind === 'status'
+        ? stationFromStatus(base, result.body)
+        : unreportedStation(base);
+    beamerStations.set(base.host, station);
+
+    try {
+      await pruneBeamerCacheFor(station);
+    } catch {
+      // A station that will not hand over its index tells us nothing about
+      // what it has deleted, so the cache stays as it is.
+    }
+  };
+
+  const pollBeamerFleet = async () => {
+    const bases = Array.from(beamerStations.values()).map(
+      ({ address, host }) => ({ address, host }),
+    );
+    await Promise.all(
+      bases.map(async (base) => {
+        try {
+          await refreshBeamerStation(base, false);
+        } catch {
+          // A missed poll is not a lost station - a Zero W mid-flush can just
+          // be slow. serviceLost is what takes a station off the list.
+        }
+      }),
+    );
+    sendBeamerFleet();
+  };
+
+  const stopBeamerBrowse = () => {
+    beamerBrowse?.stop();
+    beamerBrowse = null;
+    if (beamerPollTimer) {
+      clearInterval(beamerPollTimer);
+      beamerPollTimer = null;
+    }
+    beamerStations.clear();
+    beamerFleetError = '';
+  };
+
+  ipcMain.removeHandler('copyFromBeamer');
+  ipcMain.handle('copyFromBeamer', async (event, addressOrHost: string) => {
+    stopBeamerBrowse();
+
+    const origin = toBeamerOrigin(addressOrHost);
+    const indexPromise = getBeamerIndex(origin);
+    const statusPromise = getBeamerStatus(origin).catch(() => null);
+    const { stationId, files } = await indexPromise;
+    const status = await statusPromise;
+    const stationName =
+      status?.kind === 'status' && typeof status.body.station_name === 'string'
+        ? status.body.station_name
+        : '';
+    const label = stationName || beamerName(origin, stationId);
+
+    beamerAddress = addressOrHost.trim();
+    store.set('beamerAddress', beamerAddress);
+
+    const dest = beamerDirFor(beamerFullPath, origin, stationId);
+    (async () => {
+      await pullFromBeamer(dest, files, sendBeamerDownloadStatus);
+      const existingI = replayDirs.findIndex(({ dir }) => dir === dest);
+      if (existingI >= 0) {
+        replayDirs.splice(existingI, 1);
+      }
+      addReplayDir(dest, '', origin, label);
+    })().catch((e) => {
+      sendBeamerDownloadStatus({
+        status: 'error',
+        failedFiles: [e instanceof Error ? e.message : String(e)],
+      });
+    });
+    return dest;
+  });
+
+  ipcMain.removeHandler('refreshFromBeamer');
+  ipcMain.handle('refreshFromBeamer', async (event, origin: string) => {
+    // Resolved from the origin the renderer is actually showing, not from the
+    // top of the stack: a USB insert between render and click would otherwise
+    // pull one station's replays into another's folder.
+    const current = replayDirs.find(
+      ({ beamerOrigin }) => beamerOrigin === origin,
+    );
+    if (!current) {
+      throw new Error('Those replays are no longer loaded from a Beamer.');
+    }
+
+    const { files } = await getBeamerIndex(origin);
+    await pullFromBeamer(current.dir, files, sendBeamerDownloadStatus);
+  });
+
+  ipcMain.removeHandler('getBeamerCacheSize');
+  ipcMain.handle('getBeamerCacheSize', () =>
+    getBeamerCacheSize(beamerFullPath),
+  );
+
+  ipcMain.removeHandler('clearBeamerCache');
+  ipcMain.handle('clearBeamerCache', async () => {
+    if (replayDirs.some(({ beamerOrigin }) => beamerOrigin)) {
+      replayDirs = replayDirs.filter(({ beamerOrigin }) => !beamerOrigin);
+      const newDir =
+        replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
+      mainWindow.webContents.send(
+        'usbstorage',
+        newDir ? newDir.dir : '',
+        Boolean(newDir?.usbKey),
+        newDir?.beamerOrigin ?? '',
+        newDir?.beamerName ?? '',
+      );
+    }
+    await clearBeamerCache(beamerFullPath);
+  });
+
+  ipcMain.removeHandler('startBeamerBrowse');
+  ipcMain.handle('startBeamerBrowse', () => {
+    if (beamerBrowse) {
+      return;
+    }
+    beamerFleetError = '';
+    beamerBrowse = browseForBeamers({
+      onFound: (base) => {
+        const existing = beamerStations.get(base.host);
+        beamerStations.set(
+          base.host,
+          existing ? { ...existing, ...base } : unreportedStation(base),
+        );
+        sendBeamerFleet();
+        refreshBeamerStation(base, false)
+          .then(sendBeamerFleet)
+          .catch(() => {
+            sendBeamerFleet();
+          });
+      },
+      onLost: (host) => {
+        if (beamerStations.delete(host)) {
+          sendBeamerFleet();
+        }
+      },
+      onError: (error) => {
+        beamerFleetError = error.message;
+        sendBeamerFleet();
+      },
+    });
+    beamerPollTimer = setInterval(() => {
+      pollBeamerFleet().catch(() => {});
+    }, FLEET_POLL_MS);
+    sendBeamerFleet();
+  });
+
+  ipcMain.removeHandler('stopBeamerBrowse');
+  ipcMain.handle('stopBeamerBrowse', () => {
+    stopBeamerBrowse();
+  });
+
+  ipcMain.removeHandler('getBeamerFleet');
+  ipcMain.handle('getBeamerFleet', (): BeamerFleet => {
+    return {
+      stations: Array.from(beamerStations.values()),
+      browsing: beamerBrowse !== null,
+      error: beamerFleetError,
+    };
+  });
+
+  ipcMain.removeHandler('refreshBeamerStatus');
+  ipcMain.handle('refreshBeamerStatus', async (event, host: string) => {
+    const existing = beamerStations.get(host);
+    if (!existing) {
+      throw new Error('That station is no longer advertising itself.');
+    }
+    await refreshBeamerStation(
+      { address: existing.address, host: existing.host },
+      true,
+    );
+    sendBeamerFleet();
+  });
+
+  ipcMain.removeHandler('resetBeamerStation');
+  ipcMain.handle('resetBeamerStation', async (event, host: string) => {
+    const existing = beamerStations.get(host);
+    if (!existing) {
+      throw new Error('That station is no longer advertising itself.');
+    }
+    const base = { address: existing.address, host: existing.host };
+    await resetBeamer(toBeamerOrigin(base.address));
+
+    try {
+      await refreshBeamerStation(base, true);
+    } catch {
+      // The next poll will catch up.
+    }
+    sendBeamerFleet();
+  });
+
+  ipcMain.removeHandler('resetAllBeamerStations');
+  ipcMain.handle('resetAllBeamerStations', async (): Promise<string[]> => {
+    const targets = Array.from(beamerStations.values());
+    if (targets.length === 0) {
+      throw new Error('No stations are advertising themselves.');
+    }
+
+    const results = await Promise.allSettled(
+      targets.map(async (station) => {
+        const base = { address: station.address, host: station.host };
+        await resetBeamer(toBeamerOrigin(base.address));
+        try {
+          await refreshBeamerStation(base, true);
+        } catch {
+          // The next poll will catch up.
+        }
+      }),
+    );
+
+    const failures: string[] = [];
+    results.forEach((result, i) => {
+      if (result.status === 'rejected') {
+        const station = targets[i];
+        const label =
+          station.stationName || station.stationId || station.address;
+        const reason =
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason);
+        failures.push(`${label}: ${reason}`);
+      }
+    });
+
+    sendBeamerFleet();
+    return failures;
   });
 
   const maybeEject = (currentDir: ReplayDir) => {
@@ -399,6 +748,9 @@ export default function setupIPCs(
     if (currentDir && copyDir && currentDir === copyDir) {
       return Promise.resolve(false);
     }
+    if (!undoSrcFullPath && replayDirs[replayDirs.length - 1].beamerOrigin) {
+      return Promise.resolve(false);
+    }
 
     const slpFilenames = (await readdir(currentDir, { withFileTypes: true }))
       .filter((dirent) => dirent.isFile() && dirent.name.endsWith('.slp'))
@@ -437,6 +789,10 @@ export default function setupIPCs(
   ipcMain.handle(
     'deleteSelectedReplays',
     async (event, replayPaths: string[], used: boolean) => {
+      const beamerRoot = `${beamerFullPath}${path.sep}`;
+      if (replayPaths.some((replayPath) => replayPath.startsWith(beamerRoot))) {
+        return;
+      }
       if (trashDir) {
         const trashSubdir = format(new Date(), 'yyyy-MM-dd HHmmss');
         const fullPath = path.join(
