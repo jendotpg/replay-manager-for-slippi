@@ -1,12 +1,12 @@
 # Beamer support in replay manager
 
-This is a fork of [replay-manager-for-slippi](<[github.com/jmlee337/replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi)>). I'm still working on building a test suite for it.
+This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi). I'm still working on building a test suite for it.
 
 ---
 
 ## 1. What a Beamer is
 
-A [Beamer](<[github.com/jendotpg/slippi-beamer](https://github.com/jendotpg/slippi-beamer)>) is a Raspberry Pi Zero W bolted to a Wii. Linux can run a USB port in _device_ mode, so the Pi presents a 1 GB disk image on its SD card to the Wii as an ordinary USB flash drive. Slippi Nintendont writes `.slp` files to it believing it is a stick. The Pi then serves those same replays over the tournament WiFi (or, for bigger tournaments, over a dedicated IoT access point).
+A [Beamer](https://github.com/jendotpg/slippi-beamer) is a Raspberry Pi Zero W bolted to a Wii. Linux can run a USB port in _device_ mode, so the Pi presents a 1 GB disk image on its SD card to the Wii as an ordinary USB flash drive. Slippi Nintendont writes `.slp` files to it believing it is a stick. The Pi then serves those same replays over the tournament WiFi (or, for bigger tournaments, over a dedicated IoT access point).
 
 In short: TOs can use beamers to report sets with only a station number - no need to send a flash drive back and forth.
 
@@ -143,7 +143,7 @@ I think this shape should probably be changed completely - but that's ... not re
 
 ## 6. Reviewing this without a Beamer
 
-You don't need a Pi, a Wii, or an LED. Everything the app talks to is an mDNS advertisement and four HTTP endpoints, and [the Beamer repo](<[github.com/jendotpg/slippi-beamer](https://github.com/jendotpg/slippi-beamer)>) ships a stand-in:
+You don't need a Pi, a Wii, or an LED. Everything the app talks to is an mDNS advertisement and four HTTP endpoints, and [the Beamer repo](https://github.com/jendotpg/slippi-beamer) ships a stand-in:
 
 ```bash
 tools/fake-beamer.py --name beamer-virtual-1 --port 8081 \
