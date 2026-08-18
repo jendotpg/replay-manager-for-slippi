@@ -1,6 +1,6 @@
 # Beamer support in replay manager
 
-This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi). I'm still working on building a test suite for it.
+This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi).
 
 ---
 
@@ -14,7 +14,7 @@ In short: TOs can use beamers to report sets with only a station number - no nee
 
 ## 2. The network contract
 
-This is the entire surface the app talks to: an mDNS advertisement and five HTTP routes.
+This is the entire surface the app talks to: an mDNS advertisement and four HTTP routes.
 
 **Discovery.** Stations advertise `_beamer._tcp` on port 80 via avahi. The service instance name is the station's hostname (`beamer-<slug of its configured name>`).
 
@@ -101,7 +101,7 @@ Ten `invoke` wrappers, one `on` wrapper for `beamerFleet`, and two extra positio
 
 ### `Settings.tsx`- let user delete beamer cache
 
-### `common/`- new beamer types and
+### `common/`- new beamer types and constant
 
 ---
 
