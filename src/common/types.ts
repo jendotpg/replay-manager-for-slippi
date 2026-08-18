@@ -582,3 +582,35 @@ export type OfflineModeStatus = {
   addressOrHost: string;
   error: string;
 };
+
+export type BeamerPort = {
+  port: number;
+  charId: number | null;
+  costume: number;
+  char: string;
+  color: string;
+  nametag: string;
+};
+
+export type BeamerGame = {
+  live: boolean;
+  ports: BeamerPort[];
+};
+
+export type BeamerStation = {
+  address: string;
+  host: string;
+  stationId: string;
+  stationName: string;
+  wifi: string;
+  slippiFiles: number;
+  healthy: boolean;
+  reported: boolean;
+  game: BeamerGame | null;
+};
+
+export type BeamerFleet = {
+  stations: BeamerStation[];
+  browsing: boolean;
+  error: string;
+};

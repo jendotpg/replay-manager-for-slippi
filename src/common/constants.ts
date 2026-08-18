@@ -1,3 +1,5 @@
+import { BeamerFleet } from './types';
+
 // Is character external ID tournament legal
 export function isValidCharacter(characterId: number) {
   return characterId >= 0 && characterId <= 25;
@@ -302,3 +304,9 @@ export const highlightColor = '#ffee58';
 
 export const calledColor = '#f9a825';
 export const startedColor = '#0d8225';
+
+export const EMPTY_BEAMER_FLEET: BeamerFleet = {
+  stations: [],
+  browsing: false,
+  error: '',
+};
