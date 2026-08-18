@@ -227,6 +227,7 @@ export default function SetControls({
   enforcerSetting,
   smuggleCostumeIndex,
   wouldDeleteCopyDir,
+  isBeamer,
   replayLoadCount,
   undoSubdir,
 }: {
@@ -274,6 +275,7 @@ export default function SetControls({
   enforcerSetting: EnforcerSetting;
   smuggleCostumeIndex: boolean;
   wouldDeleteCopyDir: boolean;
+  isBeamer: boolean;
   replayLoadCount: number;
   undoSubdir: string;
 }) {
@@ -538,6 +540,8 @@ export default function SetControls({
     deleteOverrideReason = 'possible Grand Finals Reset replays detected';
   } else if (wouldDeleteCopyDir) {
     deleteOverrideReason = 'would delete replays in copy folder';
+  } else if (isBeamer) {
+    deleteOverrideReason = 'replays came from a Beamer';
   }
 
   let reportCopyDeleteIntent = 'Report';

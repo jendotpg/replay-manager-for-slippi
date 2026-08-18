@@ -52,6 +52,7 @@ import {
   NotificationsActive,
   Refresh,
   Search,
+  SettingsRemote,
 } from '@mui/icons-material';
 import styled from '@emotion/styled';
 import { format } from 'date-fns';
@@ -118,6 +119,7 @@ import getCharacterIcon from './getCharacterIcon';
 import RightColumn from './RightColumn';
 import { WindowEvent } from './setWindowEventListener';
 import SlpDownloadModal from './SlpDownloadModal';
+import BeamerDialog from './BeamerDialog';
 import { assertInteger, assertString } from '../common/asserts';
 import OfflineModeConnection from './OfflineModeConnection';
 
@@ -271,6 +273,9 @@ function Hello() {
   const [dir, setDir] = useState('');
   const [dirInit, setDirInit] = useState(false);
   const [isUsb, setIsUsb] = useState(false);
+  const [beamerOrigin, setBeamerOrigin] = useState('');
+  const [beamerName, setBeamerName] = useState('');
+  const [beamerDialogOpen, setBeamerDialogOpen] = useState(false);
   const [copyDir, setCopyDir] = useState('');
   const [host, setHost] = useState<CopyHostOrClient>({
     name: '',
@@ -713,6 +718,8 @@ function Hello() {
       );
       setDir(newDir);
       setIsUsb(false);
+      setBeamerOrigin('');
+      setBeamerName('');
       setDirExists(true);
       setDirInit(false);
       resetOverrides();
@@ -803,10 +810,17 @@ function Hello() {
 
   const wouldDeleteCopyDir =
     dir.length > 0 && copyDir.length > 0 && dir === copyDir;
+  const isBeamer = beamerOrigin.length > 0;
+  let deleteBlockedReason = '';
+  if (isBeamer) {
+    deleteBlockedReason = 'Replays came from a Beamer';
+  } else if (wouldDeleteCopyDir) {
+    deleteBlockedReason = 'Would delete copy folder';
+  }
   const [ejecting, setEjecting] = useState(false);
   const [ejected, setEjected] = useState(false);
   const deleteDir = async (usedFilenames: string[]) => {
-    if (!dir || wouldDeleteCopyDir) {
+    if (!dir || wouldDeleteCopyDir || isBeamer) {
       return;
     }
 
@@ -822,7 +836,7 @@ function Hello() {
     }
   };
   const deleteSelected = async (used: boolean) => {
-    if (!dir || wouldDeleteCopyDir) {
+    if (!dir || wouldDeleteCopyDir || isBeamer) {
       return;
     }
 
@@ -945,15 +959,19 @@ function Hello() {
   }, [confirmedCopySettings, copyDirSet, selectedSet, tournamentSet]);
 
   useEffect(() => {
-    window.electron.onUsb((e, newDir, newIsUsb) => {
-      if (!undoSubdir) {
-        setDir(newDir);
-        setIsUsb(newIsUsb);
-        setWasDeleted(false);
-        refreshReplays(true);
-        setEjected(false);
-      }
-    });
+    window.electron.onUsb(
+      (e, newDir, newIsUsb, newBeamerOrigin, newBeamerName) => {
+        if (!undoSubdir) {
+          setDir(newDir);
+          setIsUsb(newIsUsb);
+          setBeamerOrigin(newBeamerOrigin);
+          setBeamerName(newBeamerName);
+          setWasDeleted(false);
+          refreshReplays(true);
+          setEjected(false);
+        }
+      },
+    );
   }, [refreshReplays, undoSubdir]);
 
   const availablePlayers: PlayerOverrides[] = [];
@@ -1982,6 +2000,10 @@ function Hello() {
           setSlpDownloadStatus({ status: 'idle' });
         }}
       />
+      <BeamerDialog
+        open={beamerDialogOpen}
+        onClose={() => setBeamerDialogOpen(false)}
+      />
       <AppBar position="fixed" color="inherit">
         <Toolbar disableGutters variant="dense">
           <AppBarSection flexGrow={1} minWidth={600}>
@@ -2024,11 +2046,15 @@ function Hello() {
               <InputBase
                 disabled
                 size="small"
-                value={
-                  undoSubdir
-                    ? `Fixing ${undoSubdir}`
-                    : dir || 'Set replays folder...'
-                }
+                value={(() => {
+                  if (undoSubdir) {
+                    return `Fixing ${undoSubdir}`;
+                  }
+                  if (beamerName) {
+                    return `Beamer ${beamerName}`;
+                  }
+                  return dir || 'Set replays folder...';
+                })()}
                 style={{ flexGrow: 1 }}
               />
               {ejected && <Typography variant="body2">Ejected!</Typography>}
@@ -2139,17 +2165,13 @@ function Hello() {
                     ) : (
                       <Tooltip
                         arrow
-                        title={
-                          wouldDeleteCopyDir
-                            ? 'Would delete copy folder'
-                            : 'Delete selected replays'
-                        }
+                        title={deleteBlockedReason || 'Delete selected replays'}
                       >
                         <div>
                           <IconButton
                             disabled={
                               selectedReplays.length === 0 ||
-                              wouldDeleteCopyDir ||
+                              deleteBlockedReason.length > 0 ||
                               dirDeleting
                             }
                             onClick={() => deleteSelected(false)}
@@ -2160,8 +2182,30 @@ function Hello() {
                       </Tooltip>
                     ))}
                   {dir && !gettingReplays && (
-                    <Tooltip arrow title="Refresh replays">
-                      <IconButton onClick={() => refreshReplays()}>
+                    <Tooltip
+                      arrow
+                      title={
+                        beamerOrigin
+                          ? 'Pull new replays from Beamer'
+                          : 'Refresh replays'
+                      }
+                    >
+                      <IconButton
+                        onClick={async () => {
+                          if (beamerOrigin) {
+                            try {
+                              await window.electron.refreshFromBeamer(
+                                beamerOrigin,
+                              );
+                            } catch (e: any) {
+                              showErrorDialog([
+                                e instanceof Error ? e.message : e,
+                              ]);
+                            }
+                          }
+                          refreshReplays();
+                        }}
+                      >
                         <Refresh />
                       </IconButton>
                     </Tooltip>
@@ -2169,11 +2213,18 @@ function Hello() {
                   {gettingReplays ? (
                     <CircularProgress size="24px" style={{ margin: '9px' }} />
                   ) : (
-                    <Tooltip arrow title="Set replays folder">
-                      <IconButton onClick={chooseDir}>
-                        <FolderOpen />
-                      </IconButton>
-                    </Tooltip>
+                    <>
+                      <Tooltip arrow title="Copy from Beamer">
+                        <IconButton onClick={() => setBeamerDialogOpen(true)}>
+                          <SettingsRemote />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip arrow title="Set replays folder">
+                        <IconButton onClick={chooseDir}>
+                          <FolderOpen />
+                        </IconButton>
+                      </Tooltip>
+                    </>
                   )}
                 </>
               )}
@@ -3196,6 +3247,7 @@ function Hello() {
                 enforcerSetting={enforcerSetting}
                 smuggleCostumeIndex={smuggleCostumeIndex}
                 wouldDeleteCopyDir={wouldDeleteCopyDir}
+                isBeamer={isBeamer}
                 replayLoadCount={replayLoadCount}
                 undoSubdir={undoSubdir}
               />

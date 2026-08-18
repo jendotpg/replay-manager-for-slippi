@@ -36,6 +36,10 @@ import {
   Mode,
 } from '../common/types';
 
+function toMegabytes(bytes: number) {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function LabeledRadioButton({ label, value }: { label: string; value: Mode }) {
   return (
     <FormControlLabel
@@ -152,6 +156,17 @@ export default function Settings({
   }, []);
 
   const [choosingTrashDir, setChoosingTrashDir] = useState(false);
+
+  const [beamerCache, setBeamerCache] = useState({ files: 0, bytes: 0 });
+  const [clearingBeamerCache, setClearingBeamerCache] = useState(false);
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    (async () => {
+      setBeamerCache(await window.electron.getBeamerCacheSize());
+    })();
+  }, [open]);
 
   return (
     <>
@@ -431,6 +446,41 @@ export default function Settings({
                   Set trash folder
                 </Button>
               )}
+            </Stack>
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
+            >
+              <Typography variant="caption">
+                {beamerCache.files > 0
+                  ? `Beamer cache: ${beamerCache.files} replays (${toMegabytes(
+                      beamerCache.bytes,
+                    )})`
+                  : 'Beamer cache is empty'}
+              </Typography>
+              <Button
+                disabled={beamerCache.files === 0 || clearingBeamerCache}
+                endIcon={
+                  clearingBeamerCache ? (
+                    <CircularProgress size="24px" />
+                  ) : undefined
+                }
+                onClick={async () => {
+                  setClearingBeamerCache(true);
+                  try {
+                    await window.electron.clearBeamerCache();
+                    setBeamerCache({ files: 0, bytes: 0 });
+                  } catch (e: any) {
+                    showErrorDialog([e instanceof Error ? e.message : e]);
+                  } finally {
+                    setClearingBeamerCache(false);
+                  }
+                }}
+                variant="contained"
+              >
+                Clear Beamer cache
+              </Button>
             </Stack>
             <LabeledCheckbox
               checked={vlerkMode}
