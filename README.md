@@ -2,11 +2,17 @@
 
 This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi).
 
+TODO:
+
+1. disable eject button when handling a beamer
+2. add clear-replays device button per beamer
+3. add clear-all-replays button
+
 ---
 
 ## 1. What a Beamer is
 
-A [Beamer](https://github.com/jendotpg/slippi-beamer) is a Raspberry Pi Zero W bolted to a Wii. Linux can run a USB port in _device_ mode, so the Pi presents a 1 GB disk image on its SD card to the Wii as an ordinary USB flash drive. Slippi Nintendont writes `.slp` files to it believing it is a stick. The Pi then serves those same replays over the tournament WiFi (or, for bigger tournaments, over a dedicated IoT access point).
+A [Beamer](https://github.com/jendotpg/slippi-beamer) is a microprocessor bolted to a Wii. The beamer presents a disk image to the Wii as an ordinary USB flash drive. Slippi Nintendont writes `.slp` files to it believing it is a stick. The Beamer then serves those same replays over the tournament WiFi (or, for bigger tournaments, over a dedicated IoT access point).
 
 In short: TOs can use beamers to report sets with only a station number - no need to send a flash drive back and forth.
 
