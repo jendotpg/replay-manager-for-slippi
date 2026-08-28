@@ -7,6 +7,8 @@ TODO:
 1. disable eject button when handling a beamer
 2. add clear-replays device button per beamer
 3. add clear-all-replays button
+4. handle slow downloads from beamer (may sometimes need to restart a download)
+5. bugfix: character icons aren't always right! not true in upstream - wtf happened??
 
 ---
 
