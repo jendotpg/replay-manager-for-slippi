@@ -4,8 +4,8 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-1. handle slow downloads from beamer (may sometimes need to restart a download)
-2. bugfix: character icons aren't always right! not true in upstream - wtf happened??
+1. add a refresh all button
+2. add "only pull last X replays" in fleet view, "pull next replay" button on top of view
 
 ---
 

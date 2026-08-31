@@ -1999,6 +1999,9 @@ function Hello() {
         onClose={async () => {
           setSlpDownloadStatus({ status: 'idle' });
         }}
+        onCancel={async () => {
+          await window.electron.cancelBeamerDownload();
+        }}
       />
       <BeamerDialog
         open={beamerDialogOpen}
@@ -2077,20 +2080,29 @@ function Hello() {
               {!undoSubdir && (
                 <>
                   {dir && (
-                    <Tooltip arrow title="Eject (if USB)">
-                      <IconButton
-                        disabled={ejecting || isBeamer}
-                        onClick={async () => {
-                          setEjecting(true);
-                          try {
-                            setEjected(await window.electron.maybeEject());
-                          } finally {
-                            setEjecting(false);
-                          }
-                        }}
-                      >
-                        <Eject />
-                      </IconButton>
+                    <Tooltip
+                      arrow
+                      title={
+                        isBeamer
+                          ? 'Not available for beamers'
+                          : 'Eject (if USB)'
+                      }
+                    >
+                      <span>
+                        <IconButton
+                          disabled={ejecting || isBeamer}
+                          onClick={async () => {
+                            setEjecting(true);
+                            try {
+                              setEjected(await window.electron.maybeEject());
+                            } finally {
+                              setEjecting(false);
+                            }
+                          }}
+                        >
+                          <Eject />
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   )}
                   {dir &&

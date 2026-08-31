@@ -3,7 +3,11 @@ import path from 'path';
 import sanitize from 'sanitize-filename';
 import { parse as parseIpaddr } from 'ipaddr.js';
 import { SlpDownloadStatus } from '../common/types';
-import { downloadFile } from './util';
+import { DownloadError, downloadFile, downloadedFraction } from './util';
+
+const INDEX_ATTEMPTS = 3;
+const INDEX_RETRY_MS = 1000;
+const STATUS_THROTTLE_MS = 100;
 
 export type BeamerFile = { name: string; size: number; url: string };
 
@@ -27,12 +31,31 @@ export function toBeamerOrigin(addressOrHost: string) {
   return `http://${host}`;
 }
 
+async function fetchIndex(origin: string) {
+  let last: any;
+  for (let i = 0; i < INDEX_ATTEMPTS; i += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await fetch(`${origin}/SLIPPI/`, {
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (e: any) {
+      last = e;
+      if (i < INDEX_ATTEMPTS - 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => {
+          setTimeout(resolve, INDEX_RETRY_MS);
+        });
+      }
+    }
+  }
+  throw last;
+}
+
 export async function getBeamerIndex(origin: string) {
   let response;
   try {
-    response = await fetch(`${origin}/SLIPPI/`, {
-      signal: AbortSignal.timeout(5000),
-    });
+    response = await fetchIndex(origin);
   } catch (e: any) {
     if (
       e instanceof Error &&
@@ -110,10 +133,19 @@ export function beamerDirFor(
   return path.join(cacheRoot, sanitize(name) || 'beamer');
 }
 
+async function partSize(dest: string, name: string) {
+  try {
+    return (await stat(path.join(dest, `${name}.part`))).size;
+  } catch {
+    return 0;
+  }
+}
+
 export async function pullFromBeamer(
   dest: string,
   files: BeamerFile[],
   onStatus: (status: SlpDownloadStatus) => void,
+  signal?: AbortSignal,
 ) {
   await mkdir(dest, { recursive: true });
 
@@ -129,38 +161,129 @@ export async function pullFromBeamer(
   );
   const missing = files.filter((file, i) => !present[i]);
   if (missing.length === 0) {
+    onStatus({ status: 'success' });
     return;
   }
 
   const slpUrls = missing.map((file) => file.url);
-  const failedFiles: string[] = [];
-  for (let i = 0; i < missing.length; i += 1) {
-    const file = missing[i];
+  const failures = new Map<string, string>();
+
+  let filesDone = 0;
+  let completed = 0;
+  let highWater = 0;
+  let lastSentAt = 0;
+
+  const shareOf = (file: BeamerFile, written: number) =>
+    downloadedFraction(written, file.size);
+
+  const send = (
+    file: BeamerFile,
+    written: number,
+    attempt: number,
+    force = false,
+  ) => {
+    const now = Date.now();
+    if (!force && now - lastSentAt < STATUS_THROTTLE_MS) {
+      return;
+    }
+    lastSentAt = now;
+    const progress =
+      ((filesDone + shareOf(file, written)) / missing.length) * 100;
+    highWater = Math.max(highWater, progress);
     onStatus({
       status: 'downloading',
       slpUrls,
-      progress: Math.round((i / missing.length) * 100),
+      progress: highWater,
       currentFile: file.name,
+      filesDone,
+      totalFiles: missing.length,
+      attempt,
     });
+  };
 
-    const filePath = path.join(dest, file.name);
+  let unreachable = '';
+
+  const pull = async (file: BeamerFile) => {
+    let attempt = 1;
+    send(file, await partSize(dest, file.name), attempt, true);
     try {
+      await downloadFile(file.url, path.join(dest, file.name), {
+        expectedSize: file.size,
+        signal,
+        onBytes: (written) => send(file, written, attempt),
+        onAttempt: (n) => {
+          attempt = n;
+        },
+      });
+      failures.delete(file.name);
+      completed += 1;
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      failures.set(file.name, reason);
+      if (e instanceof DownloadError && e.unreachable) {
+        unreachable = reason;
+      }
+    }
+    filesDone += 1;
+    send(file, 0, attempt, true);
+  };
+
+  const cancelled = () => {
+    if (!signal?.aborted) {
+      return false;
+    }
+    onStatus({
+      status: 'cancelled',
+      filesDone: completed,
+      totalFiles: missing.length,
+    });
+    return true;
+  };
+
+  for (let i = 0; i < missing.length; i += 1) {
+    if (cancelled()) {
+      return;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await pull(missing[i]);
+    if (unreachable) {
+      const reason = unreachable;
+      missing.slice(i + 1).forEach((file) => {
+        failures.set(file.name, reason);
+      });
+      break;
+    }
+  }
+
+  const stragglers = unreachable
+    ? []
+    : missing.filter((file) => failures.has(file.name));
+  if (stragglers.length > 0) {
+    filesDone -= stragglers.length;
+    for (let i = 0; i < stragglers.length; i += 1) {
+      if (cancelled()) {
+        return;
+      }
       // eslint-disable-next-line no-await-in-loop
-      await downloadFile(file.url, filePath);
-    } catch {
-      failedFiles.push(file.name);
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await unlink(filePath);
-      } catch {
-        // best effort, there may be no partial file at all
+      await pull(stragglers[i]);
+      if (unreachable) {
+        break;
       }
     }
   }
 
+  if (cancelled()) {
+    return;
+  }
   onStatus(
-    failedFiles.length > 0
-      ? { status: 'error', failedFiles }
+    failures.size > 0
+      ? {
+          status: 'error',
+          failedFiles: Array.from(
+            failures,
+            ([name, reason]) => `${name} — ${reason}`,
+          ),
+        }
       : { status: 'success' },
   );
 }
@@ -182,8 +305,19 @@ export async function pruneBeamerDir(
 ) {
   const keep = new Set(indexNames);
   const stale = cached.filter((name) => !keep.has(name));
+
+  let parts: string[] = [];
+  try {
+    parts = (await readdir(dest, { withFileTypes: true }))
+      .filter((dirent) => dirent.isFile() && dirent.name.endsWith('.slp.part'))
+      .map((dirent) => dirent.name)
+      .filter((name) => !keep.has(name.slice(0, -'.part'.length)));
+  } catch {
+    // Already gone.
+  }
+
   await Promise.all(
-    stale.map(async (name) => {
+    [...stale, ...parts].map(async (name) => {
       try {
         await unlink(path.join(dest, name));
       } catch {

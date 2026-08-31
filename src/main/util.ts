@@ -4,30 +4,264 @@ import path from 'path';
 import { execSync } from 'child_process';
 import { LookupOptions } from 'dns';
 import { IPv4, IPv6, parse } from 'ipaddr.js';
-import { writeFile } from 'fs/promises';
+import { createWriteStream } from 'fs';
+import { rename, stat, unlink } from 'fs/promises';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 
-export async function downloadFile(url: string, dest: string): Promise<void> {
-  let response;
-  try {
-    response = await fetch(url, {
-      signal: AbortSignal.timeout(15000),
+const CONNECT_TIMEOUT_MS = 4000;
+const STALL_TIMEOUT_MS = 4000;
+const MAX_ATTEMPTS = 5;
+const MAX_TOTAL_ATTEMPTS = 20;
+const UNREACHABLE_ATTEMPTS = 2;
+const UNREACHABLE_CODES = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EHOSTDOWN',
+  'EAI_AGAIN',
+]);
+const BACKOFF_MS = [1000, 2000, 4000, 4000];
+const ASSUMED_SIZE = 1.5 * 1024 * 1024;
+
+export function downloadedFraction(written: number, size: number) {
+  if (size === 0) {
+    return 1;
+  }
+  if (size > 0) {
+    return Math.min(written / size, 1);
+  }
+  return Math.min(1 - 1 / (1 + written / ASSUMED_SIZE), 0.95);
+}
+
+export class DownloadError extends Error {
+  readonly retryable: boolean;
+  readonly discardPartial: boolean;
+  readonly unreachable: boolean;
+
+  constructor(
+    message: string,
+    { retryable = true, discardPartial = false, unreachable = false } = {},
+  ) {
+    super(message);
+    this.name = 'DownloadError';
+    this.retryable = retryable;
+    this.discardPartial = discardPartial;
+    this.unreachable = unreachable;
+  }
+}
+
+function networkError(error: unknown) {
+  const code = (error as any)?.cause?.code ?? (error as any)?.code;
+  if (typeof code === 'string' && UNREACHABLE_CODES.has(code)) {
+    return new DownloadError(`the Beamer is unreachable (${code})`, {
+      unreachable: true,
     });
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Timeout downloading '${url}'`);
+  }
+  if (typeof code === 'string') {
+    return new DownloadError(`the connection failed (${code})`);
+  }
+  return new DownloadError(
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
+export type DownloadOptions = {
+  expectedSize?: number;
+  onBytes?: (written: number) => void;
+  onAttempt?: (attempt: number) => void;
+  signal?: AbortSignal;
+};
+
+async function sizeOf(file: string) {
+  try {
+    return (await stat(file)).size;
+  } catch {
+    return 0;
+  }
+}
+
+async function discard(file: string) {
+  try {
+    await unlink(file);
+  } catch {
+    // best effort - there may be no partial file at all
+  }
+}
+
+function statusError(status: number, resuming = false) {
+  const retryable = status >= 500 || status === 408 || status === 429;
+  return new DownloadError(`HTTP ${status}`, {
+    retryable,
+    discardPartial: status === 404 || (resuming && status === 200), // 200 (server doesn't support range) sticks otherwise
+  });
+}
+
+function expectedTotal(
+  response: Response,
+  from: number,
+  fromIndex: number | undefined,
+) {
+  const contentRange = response.headers.get('content-range');
+  const total = contentRange?.match(/\/(\d+)\s*$/)?.[1];
+  if (total) {
+    return Number(total);
+  }
+  const length = response.headers.get('content-length');
+  if (length !== null && length !== '') {
+    return from + Number(length);
+  }
+  return fromIndex !== undefined && fromIndex >= 0 ? fromIndex : -1;
+}
+
+async function downloadAttempt(
+  url: string,
+  part: string,
+  options: DownloadOptions,
+): Promise<number> {
+  const from = await sizeOf(part);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  options.signal?.addEventListener('abort', abort, { once: true });
+
+  let timer: NodeJS.Timeout | undefined;
+  const watchdog = (ms: number) => {
+    clearTimeout(timer);
+    timer = setTimeout(abort, ms);
+  };
+
+  try {
+    watchdog(CONNECT_TIMEOUT_MS);
+
+    let response;
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: from > 0 ? { Range: `bytes=${from}-` } : undefined,
+      });
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throw new DownloadError('cancelled', { retryable: false });
+      }
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new DownloadError('timed out');
+      }
+      throw networkError(error);
     }
-    throw error;
-  }
 
-  if (!response.ok) {
-    throw new Error(`Failed to get '${url}' (${response.status})`);
-  }
+    if (from > 0 && response.status === 416) {
+      throw new DownloadError('the partial file was stale', {
+        discardPartial: true,
+      });
+    }
+    const wantStatus = from > 0 ? 206 : 200;
+    if (response.status !== wantStatus) {
+      throw statusError(response.status, from > 0);
+    }
+    if (!response.body) {
+      throw new DownloadError('no response body');
+    }
 
-  if (!response.body) {
-    throw new Error(`No response body for '${url}'`);
-  }
+    const expected = expectedTotal(response, from, options.expectedSize);
 
-  await writeFile(dest, Buffer.from(await response.arrayBuffer()));
+    let written = from;
+    watchdog(STALL_TIMEOUT_MS);
+    const counted = Readable.fromWeb(response.body as any).map(
+      (chunk: Buffer) => {
+        written += chunk.length;
+        watchdog(STALL_TIMEOUT_MS);
+        options.onBytes?.(written);
+        return chunk;
+      },
+    );
+
+    try {
+      await pipeline(
+        counted,
+        createWriteStream(part, from > 0 ? { flags: 'a' } : {}),
+      );
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throw new DownloadError('cancelled', { retryable: false });
+      }
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new DownloadError('the connection stalled');
+      }
+      throw networkError(error);
+    }
+
+    if (expected >= 0 && written !== expected) {
+      throw new DownloadError(
+        `truncated (${written} of ${expected} bytes)`,
+        { discardPartial: written > expected },
+      );
+    }
+    return written;
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', abort);
+  }
+}
+
+export async function downloadFile(
+  url: string,
+  dest: string,
+  options: DownloadOptions = {},
+): Promise<void> {
+  const part = `${dest}.part`;
+  let tries = 1;
+  let attempts = 0;
+  let best = await sizeOf(part);
+
+  for (;;) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await downloadAttempt(url, part, options);
+      // eslint-disable-next-line no-await-in-loop
+      await rename(part, dest);
+      return;
+    } catch (error) {
+      const failure =
+        error instanceof DownloadError
+          ? error
+          : new DownloadError(
+              error instanceof Error ? error.message : String(error),
+            );
+      if (failure.discardPartial) {
+        // eslint-disable-next-line no-await-in-loop
+        await discard(part);
+        best = 0;
+      }
+      if (!failure.retryable) {
+        throw failure;
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      const written = await sizeOf(part);
+      if (written > best) {
+        best = written;
+        attempts = 0;
+      } else {
+        attempts += 1;
+      }
+      const budget = failure.unreachable ? UNREACHABLE_ATTEMPTS : MAX_ATTEMPTS;
+      if (attempts >= budget || tries >= MAX_TOTAL_ATTEMPTS) {
+        throw failure;
+      }
+
+      tries += 1;
+      options.onAttempt?.(tries);
+      const backoff = BACKOFF_MS[Math.min(attempts - 1, BACKOFF_MS.length - 1)];
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => {
+        setTimeout(resolve, backoff);
+      });
+      if (options.signal?.aborted) {
+        throw new DownloadError('cancelled', { retryable: false });
+      }
+    }
+  }
 }
 
 export function resolveHtmlPath(htmlFileName: string) {

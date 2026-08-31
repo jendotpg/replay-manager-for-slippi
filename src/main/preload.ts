@@ -49,6 +49,8 @@ const electronHandler = {
     ipcRenderer.invoke('copyFromBeamer', addressOrHost),
   refreshFromBeamer: (origin: string): Promise<void> =>
     ipcRenderer.invoke('refreshFromBeamer', origin),
+  cancelBeamerDownload: (): Promise<void> =>
+    ipcRenderer.invoke('cancelBeamerDownload'),
   getTrashDir: (): Promise<string> => ipcRenderer.invoke('getTrashDir'),
   chooseTrashDir: (): Promise<string> => ipcRenderer.invoke('chooseTrashDir'),
   clearTrashDir: (): Promise<void> => ipcRenderer.invoke('clearTrashDir'),

@@ -443,8 +443,12 @@ export type SlpDownloadStatus =
       slpUrls: string[];
       progress: number;
       currentFile: string;
+      filesDone?: number;
+      totalFiles?: number;
+      attempt?: number;
     }
   | { status: 'error'; failedFiles: string[] }
+  | { status: 'cancelled'; filesDone: number; totalFiles: number }
   | { status: 'success' };
 
 export type ParryggBracket = ParryggBracketPb.AsObject & { sets?: Sets };

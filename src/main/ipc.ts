@@ -119,7 +119,7 @@ import {
   stopListeningAndSend,
 } from './host';
 import { assertInteger, assertString } from '../common/asserts';
-import { downloadFile, resolveHtmlPath } from './util';
+import { downloadFile, downloadedFraction, resolveHtmlPath } from './util';
 import {
   beamerDirFor,
   beamerName,
@@ -228,47 +228,60 @@ export default function setupIPCs(
     );
   }
 
-  let slpDownloadStatus: {
-    status: 'idle' | 'downloading' | 'error' | 'success';
-    slpUrls?: string[];
-    progress?: number;
-    currentFile?: string;
-    failedFiles?: string[];
-  } = { status: 'idle' };
+  let slpDownloadStatus: SlpDownloadStatus = { status: 'idle' };
+  const STATUS_THROTTLE_MS = 100;
 
   async function handleProtocolLoadSlpUrls(slpUrls: string[]) {
     await mkdir(protocolLoadFullPath, { recursive: true });
     const failedFiles: string[] = [];
     const total = slpUrls.length;
     let completed = 0;
+
+    const shares = new Map<string, number>();
+    let highWater = 0;
+    let lastSentAt = 0;
+    const send = (fileName: string, force = false) => {
+      const now = Date.now();
+      if (!force && now - lastSentAt < STATUS_THROTTLE_MS) {
+        return;
+      }
+      lastSentAt = now;
+      let sum = 0;
+      shares.forEach((share) => {
+        sum += share;
+      });
+      highWater = Math.max(highWater, (sum / total) * 100);
+      slpDownloadStatus = {
+        status: 'downloading',
+        slpUrls,
+        progress: highWater,
+        currentFile: fileName,
+        filesDone: completed,
+        totalFiles: total,
+      };
+      if (mainWindow) {
+        mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
+      }
+    };
+
     await Promise.all(
       slpUrls.map(async (url) => {
         const fileName = path.basename(new URL(url).pathname);
         const dest = path.join(protocolLoadFullPath, fileName);
         try {
-          await downloadFile(url, dest);
+          await downloadFile(url, dest, {
+            onBytes: (written) => {
+              shares.set(url, downloadedFraction(written, -1));
+              send(fileName);
+            },
+          });
+          shares.set(url, 1);
         } catch (err) {
-          // Delete partial files
-          try {
-            await unlink(dest);
-          } catch (unlinkErr) {
-            // ignore
-          }
+          shares.set(url, 1);
           failedFiles.push(url);
         } finally {
           completed += 1;
-          slpDownloadStatus = {
-            status: 'downloading',
-            slpUrls,
-            progress: Math.round((completed / total) * 100),
-            currentFile: fileName,
-          };
-          if (mainWindow) {
-            mainWindow.webContents.send(
-              'slp-download-status',
-              slpDownloadStatus,
-            );
-          }
+          send(fileName, true);
         }
       }),
     );
@@ -278,6 +291,8 @@ export default function setupIPCs(
       slpUrls,
       progress: 100,
       currentFile: '',
+      filesDone: total,
+      totalFiles: total,
     };
     if (mainWindow) {
       mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
@@ -406,6 +421,18 @@ export default function setupIPCs(
     mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
   };
 
+  let beamerPull: AbortController | null = null;
+  const startBeamerPull = () => {
+    beamerPull?.abort();
+    beamerPull = new AbortController();
+    return beamerPull.signal;
+  };
+
+  ipcMain.removeHandler('cancelBeamerDownload');
+  ipcMain.handle('cancelBeamerDownload', () => {
+    beamerPull?.abort();
+  });
+
   const beamerStations = new Map<string, BeamerStation>();
   let beamerBrowse: BeamerBrowseHandle | null = null;
   let beamerPollTimer: NodeJS.Timeout | null = null;
@@ -492,7 +519,7 @@ export default function setupIPCs(
         try {
           await refreshBeamerStation(base, false);
         } catch {
-          // A missed poll is not a lost station - a Zero W mid-flush can just
+          // A missed poll is not a lost station - a Beamer mid-flush can just
           // be slow. serviceLost is what takes a station off the list.
         }
       }),
@@ -527,8 +554,13 @@ export default function setupIPCs(
     const label = stationName || beamerName(origin, stationId);
 
     const dest = beamerDirFor(beamerFullPath, origin, stationId);
+    const signal = startBeamerPull();
     (async () => {
-      await pullFromBeamer(dest, files, sendBeamerDownloadStatus);
+      try {
+        await pullFromBeamer(dest, files, sendBeamerDownloadStatus, signal);
+      } finally {
+        beamerPull = null;
+      }
       const existingI = replayDirs.findIndex(({ dir }) => dir === dest);
       if (existingI >= 0) {
         replayDirs.splice(existingI, 1);
@@ -537,7 +569,9 @@ export default function setupIPCs(
     })().catch((e) => {
       sendBeamerDownloadStatus({
         status: 'error',
-        failedFiles: [e instanceof Error ? e.message : String(e)],
+        failedFiles: [
+          `The pull failed: ${e instanceof Error ? e.message : String(e)}`,
+        ],
       });
     });
     return dest;
@@ -553,7 +587,17 @@ export default function setupIPCs(
     }
 
     const { files } = await getBeamerIndex(origin);
-    await pullFromBeamer(current.dir, files, sendBeamerDownloadStatus);
+    const signal = startBeamerPull();
+    try {
+      await pullFromBeamer(
+        current.dir,
+        files,
+        sendBeamerDownloadStatus,
+        signal,
+      );
+    } finally {
+      beamerPull = null;
+    }
   });
 
   ipcMain.removeHandler('getBeamerCacheSize');
