@@ -2079,7 +2079,7 @@ function Hello() {
                   {dir && (
                     <Tooltip arrow title="Eject (if USB)">
                       <IconButton
-                        disabled={ejecting}
+                        disabled={ejecting || isBeamer}
                         onClick={async () => {
                           setEjecting(true);
                           try {

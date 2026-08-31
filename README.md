@@ -4,15 +4,8 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-1. show one beamer per row in fleet view
-
-   1. warning label per beamer
-   2. one warning label at the top that lists all of the warnings
-   3. render "time since ports change" and "time since characters change"
-
-2. disable eject button when handling a beamer
-3. handle slow downloads from beamer (may sometimes need to restart a download)
-4. bugfix: character icons aren't always right! not true in upstream - wtf happened??
+1. handle slow downloads from beamer (may sometimes need to restart a download)
+2. bugfix: character icons aren't always right! not true in upstream - wtf happened??
 
 ---
 
