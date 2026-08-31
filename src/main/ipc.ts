@@ -472,7 +472,7 @@ export default function setupIPCs(
       result.kind === 'status'
         ? stationFromStatus(base, result.body)
         : unreportedStation(base);
-    beamerStations.set(base.host, station);
+    beamerStations.set(base.address, station);
 
     try {
       await pruneBeamerCacheFor(station);
@@ -547,9 +547,6 @@ export default function setupIPCs(
 
   ipcMain.removeHandler('refreshFromBeamer');
   ipcMain.handle('refreshFromBeamer', async (event, origin: string) => {
-    // Resolved from the origin the renderer is actually showing, not from the
-    // top of the stack: a USB insert between render and click would otherwise
-    // pull one station's replays into another's folder.
     const current = replayDirs.find(
       ({ beamerOrigin }) => beamerOrigin === origin,
     );
@@ -591,9 +588,9 @@ export default function setupIPCs(
     beamerFleetError = '';
     beamerBrowse = browseForBeamers({
       onFound: (base) => {
-        const existing = beamerStations.get(base.host);
+        const existing = beamerStations.get(base.address);
         beamerStations.set(
-          base.host,
+          base.address,
           existing ? { ...existing, ...base } : unreportedStation(base),
         );
         sendBeamerFleet();
@@ -604,9 +601,30 @@ export default function setupIPCs(
           });
       },
       onLost: (host) => {
-        if (beamerStations.delete(host)) {
-          sendBeamerFleet();
+        const sharing = Array.from(beamerStations.values()).filter(
+          (station) => station.host === host,
+        );
+        if (sharing.length === 0) {
+          return;
         }
+        if (sharing.length === 1) {
+          beamerStations.delete(sharing[0].address);
+          sendBeamerFleet();
+          return;
+        }
+        Promise.all(
+          sharing.map(async (station) => {
+            try {
+              await getBeamerStatus(toBeamerOrigin(station.address));
+            } catch {
+              beamerStations.delete(station.address);
+            }
+          }),
+        )
+          .then(sendBeamerFleet)
+          .catch(() => {
+            sendBeamerFleet();
+          });
       },
       onError: (error) => {
         beamerFleetError = error.message;
@@ -634,8 +652,8 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('refreshBeamerStatus');
-  ipcMain.handle('refreshBeamerStatus', async (event, host: string) => {
-    const existing = beamerStations.get(host);
+  ipcMain.handle('refreshBeamerStatus', async (event, address: string) => {
+    const existing = beamerStations.get(address);
     if (!existing) {
       throw new Error('That station is no longer advertising itself.');
     }
@@ -647,8 +665,8 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('resetBeamerStation');
-  ipcMain.handle('resetBeamerStation', async (event, host: string) => {
-    const existing = beamerStations.get(host);
+  ipcMain.handle('resetBeamerStation', async (event, address: string) => {
+    const existing = beamerStations.get(address);
     if (!existing) {
       throw new Error('That station is no longer advertising itself.');
     }

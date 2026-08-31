@@ -4,11 +4,15 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-1. disable eject button when handling a beamer
-2. add clear-replays device button per beamer
-3. add clear-all-replays button
-4. handle slow downloads from beamer (may sometimes need to restart a download)
-5. bugfix: character icons aren't always right! not true in upstream - wtf happened??
+1. show one beamer per row in fleet view
+
+   1. warning label per beamer
+   2. one warning label at the top that lists all of the warnings
+   3. render "time since ports change" and "time since characters change"
+
+2. disable eject button when handling a beamer
+3. handle slow downloads from beamer (may sometimes need to restart a download)
+4. bugfix: character icons aren't always right! not true in upstream - wtf happened??
 
 ---
 
@@ -22,36 +26,70 @@ In short: TOs can use beamers to report sets with only a station number - no nee
 
 ## 2. The network contract
 
-This is the entire surface the app talks to: an mDNS advertisement and four HTTP routes.
+This is the entire surface the app talks to: an mDNS advertisement and five HTTP routes.
 
-**Discovery.** Stations advertise `_beamer._tcp` on port 80 via avahi. The service instance name is the station's hostname (`beamer-<slug of its configured name>`).
+| Method | Path             | What it does                                                  |
+| ------ | ---------------- | ------------------------------------------------------------- |
+| `GET`  | `/status`        | The last self-check, cached. Runs nothing, so poll it freely. |
+| `POST` | `/status`        | Re-runs the check, then returns the fresh report.             |
+| `GET`  | `/SLIPPI/`       | Index of the replays this station is currently serving.       |
+| `GET`  | `/SLIPPI/<file>` | The replay itself.                                            |
+| `POST` | `/reset-beamer`  | Erases the replay drive. Requires`X-Beamer-Confirm: reset`.   |
 
-**`GET /SLIPPI/`** -> a JSON index of the last up-to-10 generated slippi replays
+Stations advertise `_beamer._tcp` on port 80.
+
+`GET /SLIPPI/` -> a JSON index of the replays the station is serving right now, newest first (`NUM-REPLAYS-SERVED`, up to 16).
 
 ```json
 {
   "schema": 1,
-  "station": "<uuid>",
-  "generated": "<timestamp>",
-  "count": 10,
+  "station_id": "60ed5b25-5a43-5481-9d5c-abcb52dcb1f2",
+  "served_replay_count": 1,
   "files": [
-    {
-      "name": "Game_….slp",
-      "size": 214233,
-      "mtime": "<iso>",
-      "url": "/SLIPPI/Game_….slp"
-    }
+    { "size": 1343765, "url": "/SLIPPI/Game_8C56C52F24CC_20260831T202307.slp" }
   ]
 }
 ```
 
-**`GET /SLIPPI/<file>`** -> the replay, served statically.
+`GET /status` ->
 
-**`GET /status`** -> the station's last self-check: station id and name, WiFi SSID, replay count, a pass/fail verdict, and — when a game is in progress or has just finished — the ports, characters, costumes and nametags parsed out of the live `.slp`.
-
-**`POST /status`** -> re-run the check, then return the fresh report. Slower, obviously.
-
-**`POST /reset-beamer`** -> erase every replay on the station's drive and then remount. This requires the header `X-Beamer-Confirm: reset`, mostly so I don't accidentally trigger it LOL
+```json
+{
+  "schema": 1,
+  "arch": "esp32", # fake for a fake, armhf for a pi zero w
+  "station_id": "60ed5b25-5a43-5481-9d5c-abcb52dcb1f2",
+  "station_name": "dev-unit-02",
+  "ssid": "nycmelee",
+  "replay_count": 17,
+  "replay_cap": 512,
+  "ssh": false,
+  "game": { # null until a game has been started, then the most recent game
+    "live": false,
+    "ports": [
+      {
+        "port": 1,
+        "char": "Puff",
+        "char_id": 15,
+        "color": null,
+        "costume": 0,
+        "nametag": null
+      },
+      {
+        "port": 4,
+        "char": "Falco",
+        "char_id": 20,
+        "color": null,
+        "costume": 0,
+        "nametag": null
+      }
+    ]
+  },
+  "secs_since_port_change": 888, # how many seconds have the same ports been in use
+  "secs_since_character_change": 888, # how many seconds have the same characters AND ports been in use
+  "health": "ok",
+  "warnings": []
+}
+```
 
 ### Trust model
 
@@ -59,12 +97,10 @@ There's no authentication at all - if you can reach the beamer, you can do anyth
 
 Because replay manager cannot trust beamers, it validates everything they send:
 
-- Index entries are re-derived, not trusted (`beamer.ts`): `path.basename` on every name, non-`.slp` and dotfiles dropped, and the resolved URL must still start with `<origin>/SLIPPI/`.
-- `/status` bodies are size-capped (`MAX_STATUS_BYTES`) and every field is coerced through `asString` / `Number.isInteger` guards before it reaches React.
+- Index entries are re-derived, not trusted (`beamer.ts`): the URL is resolved against the station's own origin and has to still start with `<origin>/SLIPPI/`, and the filename is then `path.basename` of that URL's path - the station doesn't get to name a file at all. Non-`.slp` and dotfiles are dropped.
+- `/status` bodies are size-capped (`MAX_STATUS_BYTES`) and every field is coerced before it reaches React: `asString`, `Number.isInteger`, `health` matched against the four known values (anything else becomes the app's own `unknown`), and `warnings` filtered down to non-empty strings.
 - Every `fetch` has an explicit timeout. None of them can hang the main process.
 - The per-station cache directory name goes through `sanitize-filename`.
-
----
 
 ## 3. Changes to replay manager
 
@@ -94,6 +130,7 @@ Ten new `invoke` handlers (`copyFromBeamer`, `refreshFromBeamer`, `startBeamerBr
 A few notes:
 
 - **The fleet poll is forgiving.** A failed `/status` poll does not remove a station from the list — only mDNS `serviceLost` does.
+- **The fleet is keyed by address, not by station name.** Nothing stops two stations from advertising the same instance name.
 - **The local cache is matched exactly to the beamer.** Each poll compares the local cache to the station's index and unlinks anything the station no longer has, so the local view follows a station whose replay window has rolled forward. If a station won't hand over its index, the cache is left alone.
 - **`refreshFromBeamer` takes the origin explicitly.** This prevents a race condition on USB insert between render and click. Shoutout Claude - I never would have found this myself LMFAO
 
@@ -151,7 +188,7 @@ I think this shape should probably be changed completely - but that's ... not re
 
 ## 6. Reviewing this without a Beamer
 
-You don't need a Pi, a Wii, or an LED. Everything the app talks to is an mDNS advertisement and four HTTP endpoints, and [the Beamer repo](https://github.com/jendotpg/slippi-beamer) ships a stand-in:
+You don't need a Pi, a Wii, or an LED. Everything the app talks to is an mDNS advertisement and five HTTP endpoints, and [the Beamer repo](https://github.com/jendotpg/slippi-beamer) ships a stand-in:
 
 ```bash
 tools/fake-beamer.py --name beamer-virtual-1 --port 8081 \
@@ -159,13 +196,16 @@ tools/fake-beamer.py --name beamer-virtual-1 --port 8081 \
   --station-name "Fake 1"
 ```
 
-Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine.
+Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine. The duplicate-name case can't be faked on my Mac: Bonjour renames the duplicate automatically.
 
-The game payload isn't canned: it comes from the real `slp-peek`, compiled from the station's own C source and run against a real `.slp` exactly as the station does. So the character icons in the fleet list are a real test.
+The game payload isn't canned: `--game` is peeked out of a real `.slp` by a port of the station's own `beamer::slp` carried inside the script. So the character icons in the fleet list are a real test.
 
-Two flags reproduce the failure states the app handles:
+The flags that reproduce states the app has to handle:
 
-- `--unhealthy` -> `result: "fail"`, which should show the warning icon on the row while still allowing a copy.
+- `--unhealthy` -> `health: "error"`, which should show the red warning icon on the row while still allowing a copy.
+- `--warn "DRIVE FILLING,NO WII"` -> `health: "warn"` with those labels, which should show the amber icon and the labels in its tooltip.
 - `--unreported` -> `503` on `GET /status`, which should show the row with an address and no details rather than an error.
+- `--cap` / `--served` -> the `replay_cap` the station reports and how many replays it publishes, for the `17/512 replays` line.
+- `--post-delay` -> how long `POST /status` takes, so the refresh spinner is visible.
 
-This test doesn't emulate the USB gadget, the LED, the config file, the reset endpoint's actual destruction, or the timing of a real Zero W.
+This test doesn't emulate the USB gadget, the LED, the config file, the reset endpoint's actual destruction, the `409` you get from the station's API lock, or the timing of a real Beamer.

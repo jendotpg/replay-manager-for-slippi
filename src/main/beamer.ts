@@ -61,25 +61,26 @@ export async function getBeamerIndex(origin: string) {
   const prefix = `${origin}/SLIPPI/`;
   const files: BeamerFile[] = [];
   index.files.forEach((file: any) => {
-    if (typeof file?.name !== 'string') {
+    if (typeof file?.url !== 'string' || !file.url) {
       return;
     }
-    const name = path.basename(file.name);
-    if (!name.endsWith('.slp') || name.startsWith('.')) {
-      return;
-    }
-    let url;
+    let resolved;
     try {
-      url = new URL(
-        typeof file.url === 'string' && file.url
-          ? file.url
-          : `/SLIPPI/${encodeURIComponent(name)}`,
-        origin,
-      ).toString();
+      resolved = new URL(file.url, origin);
     } catch {
       return;
     }
+    const url = resolved.toString();
     if (!url.startsWith(prefix)) {
+      return;
+    }
+    let name;
+    try {
+      name = path.basename(decodeURIComponent(resolved.pathname));
+    } catch {
+      return;
+    }
+    if (!name.endsWith('.slp') || name.startsWith('.')) {
       return;
     }
     files.push({
@@ -89,7 +90,7 @@ export async function getBeamerIndex(origin: string) {
     });
   });
   return {
-    stationId: typeof index.station === 'string' ? index.station : '',
+    stationId: typeof index.station_id === 'string' ? index.station_id : '',
     files,
   };
 }

@@ -29,13 +29,35 @@ function labelFor(station: BeamerStation) {
   return station.stationName || station.stationId || station.address;
 }
 
+function healthIconFor(station: BeamerStation) {
+  if (station.health !== 'warn' && station.health !== 'error') {
+    return null;
+  }
+  const title =
+    station.warnings.length > 0
+      ? station.warnings.join(', ')
+      : "ERROR. Check Beamer.";
+  return (
+    <Tooltip arrow title={title}>
+      <Warning
+        color={station.health === 'error' ? 'error' : 'warning'}
+        fontSize="small"
+      />
+    </Tooltip>
+  );
+}
+
 function secondaryFor(station: BeamerStation) {
   const parts = [station.address];
-  if (station.slippiFiles >= 0) {
-    parts.push(`${station.slippiFiles} replays`);
+  if (station.replayCount >= 0) {
+    parts.push(
+      station.replayCap >= 0
+        ? `${station.replayCount}/${station.replayCap} replays`
+        : `${station.replayCount} replays`,
+    );
   }
-  if (station.wifi) {
-    parts.push(station.wifi);
+  if (station.ssid) {
+    parts.push(station.ssid);
   }
   return parts.join(' · ');
 }
@@ -127,11 +149,11 @@ export default function BeamerDialog({
     }
   };
 
-  const refresh = async (host: string) => {
-    setRefreshing(host);
+  const refresh = async (address: string) => {
+    setRefreshing(address);
     setError('');
     try {
-      await window.electron.refreshBeamerStatus(host);
+      await window.electron.refreshBeamerStatus(address);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
@@ -140,10 +162,10 @@ export default function BeamerDialog({
   };
 
   const reset = async (station: BeamerStation) => {
-    setResetting(station.host);
+    setResetting(station.address);
     setError('');
     try {
-      await window.electron.resetBeamerStation(station.host);
+      await window.electron.resetBeamerStation(station.address);
       setConfirmingReset(null);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
@@ -185,9 +207,9 @@ export default function BeamerDialog({
   if (
     confirmingReset &&
     confirmingReset !== 'all' &&
-    confirmingReset.slippiFiles >= 0
+    confirmingReset.replayCount >= 0
   ) {
-    confirmingResetCount = `All ${confirmingReset.slippiFiles} replays on this station's drive will be erased. This cannot be undone.`;
+    confirmingResetCount = `All ${confirmingReset.replayCount} replays on this station's drive will be erased. This cannot be undone.`;
   }
 
   return (
@@ -234,7 +256,7 @@ export default function BeamerDialog({
               <ListItemButton
                 alignItems="flex-start"
                 disabled={busy}
-                key={station.host}
+                key={station.address}
                 onClick={() => {
                   select(station.address);
                 }}
@@ -248,14 +270,7 @@ export default function BeamerDialog({
                           {labelFor(station)}
                         </Typography>
                       </Tooltip>
-                      {station.reported && !station.healthy && (
-                        <Tooltip
-                          arrow
-                          title="This station's last check failed. It will still copy."
-                        >
-                          <Warning color="warning" fontSize="small" />
-                        </Tooltip>
-                      )}
+                      {healthIconFor(station)}
                     </Stack>
                   }
                   secondary={
@@ -274,13 +289,11 @@ export default function BeamerDialog({
                         busy || Boolean(refreshing) || Boolean(resetting)
                       }
                       onClick={(event) => {
-                        // The row itself copies. A refresh that kicked off a
-                        // download would be a nasty surprise.
                         event.stopPropagation();
-                        refresh(station.host);
+                        refresh(station.address);
                       }}
                     >
-                      {refreshing === station.host ? (
+                      {refreshing === station.address ? (
                         <CircularProgress size="24px" />
                       ) : (
                         <Refresh />
@@ -297,7 +310,7 @@ export default function BeamerDialog({
                         setConfirmingReset(station);
                       }}
                     >
-                      {resetting === station.host ? (
+                      {resetting === station.address ? (
                         <CircularProgress size="24px" />
                       ) : (
                         <DeleteForever color="error" />

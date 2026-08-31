@@ -62,10 +62,10 @@ const electronHandler = {
   stopBeamerBrowse: (): Promise<void> => ipcRenderer.invoke('stopBeamerBrowse'),
   getBeamerFleet: (): Promise<BeamerFleet> =>
     ipcRenderer.invoke('getBeamerFleet'),
-  refreshBeamerStatus: (host: string): Promise<void> =>
-    ipcRenderer.invoke('refreshBeamerStatus', host),
-  resetBeamerStation: (host: string): Promise<void> =>
-    ipcRenderer.invoke('resetBeamerStation', host),
+  refreshBeamerStatus: (address: string): Promise<void> =>
+    ipcRenderer.invoke('refreshBeamerStatus', address),
+  resetBeamerStation: (address: string): Promise<void> =>
+    ipcRenderer.invoke('resetBeamerStation', address),
   resetAllBeamerStations: (): Promise<string[]> =>
     ipcRenderer.invoke('resetAllBeamerStations'),
   deleteReplaysDir: (usedFilenames: string[]): Promise<boolean> =>

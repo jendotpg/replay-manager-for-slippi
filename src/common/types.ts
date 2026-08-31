@@ -597,14 +597,22 @@ export type BeamerGame = {
   ports: BeamerPort[];
 };
 
+export type BeamerHealth = 'ok' | 'starting' | 'warn' | 'error' | 'unknown';
+
 export type BeamerStation = {
   address: string;
   host: string;
   stationId: string;
   stationName: string;
-  wifi: string;
-  slippiFiles: number;
-  healthy: boolean;
+  ssid: string;
+  arch: string;
+  ssh: boolean;
+  replayCount: number;
+  replayCap: number;
+  health: BeamerHealth;
+  warnings: string[];
+  secsSincePortChange: number | null;
+  secsSinceCharacterChange: number | null;
   reported: boolean;
   game: BeamerGame | null;
 };

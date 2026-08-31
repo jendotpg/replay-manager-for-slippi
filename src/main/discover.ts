@@ -1,5 +1,10 @@
 import DnsSd, { DnsSdBrowse } from '@fugood/dns-sd';
-import { BeamerGame, BeamerPort, BeamerStation } from '../common/types';
+import {
+  BeamerGame,
+  BeamerHealth,
+  BeamerPort,
+  BeamerStation,
+} from '../common/types';
 
 export const FLEET_POLL_MS = 10000;
 
@@ -38,19 +43,48 @@ function asGame(value: any): BeamerGame | null {
   return { live: value.live === true, ports };
 }
 
+const HEALTHS: BeamerHealth[] = ['ok', 'starting', 'warn', 'error'];
+
+function asHealth(value: unknown): BeamerHealth {
+  return HEALTHS.includes(value as BeamerHealth)
+    ? (value as BeamerHealth)
+    : 'unknown';
+}
+
+function asCount(value: unknown) {
+  return Number.isInteger(value) ? (value as number) : -1;
+}
+
+function asSecs(value: unknown) {
+  return Number.isInteger(value) ? (value as number) : null;
+}
+
+function asWarnings(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter(
+        (warning): warning is string =>
+          typeof warning === 'string' && warning.length > 0,
+      )
+    : [];
+}
+
 export function stationFromStatus(
   base: Pick<BeamerStation, 'address' | 'host'>,
   status: any,
 ): BeamerStation {
   return {
     ...base,
-    stationId: asString(status.station),
+    stationId: asString(status.station_id),
     stationName: asString(status.station_name),
-    wifi: asString(status.wifi),
-    slippiFiles: Number.isInteger(status.slippi_files)
-      ? status.slippi_files
-      : -1,
-    healthy: status.result === 'pass',
+    ssid: asString(status.ssid),
+    arch: asString(status.arch),
+    ssh: status.ssh === true,
+    replayCount: asCount(status.replay_count),
+    replayCap: asCount(status.replay_cap),
+    health: asHealth(status.health),
+    warnings: asWarnings(status.warnings),
+    secsSincePortChange: asSecs(status.secs_since_port_change),
+    secsSinceCharacterChange: asSecs(status.secs_since_character_change),
     reported: true,
     game: asGame(status.game),
   };
@@ -63,9 +97,15 @@ export function unreportedStation(
     ...base,
     stationId: '',
     stationName: '',
-    wifi: '',
-    slippiFiles: -1,
-    healthy: false,
+    ssid: '',
+    arch: '',
+    ssh: false,
+    replayCount: -1,
+    replayCap: -1,
+    health: 'unknown',
+    warnings: [],
+    secsSincePortChange: null,
+    secsSinceCharacterChange: null,
     reported: false,
     game: null,
   };
@@ -76,7 +116,7 @@ export function isStatusBody(body: any) {
     Boolean(body) &&
     typeof body === 'object' &&
     'schema' in body &&
-    ('station' in body || 'host' in body || 'result' in body)
+    'station_id' in body
   );
 }
 
@@ -120,6 +160,11 @@ async function requestStatus(
 
   if (response.status === 503) {
     return { kind: 'unreported' };
+  }
+  if (response.status === 409) {
+    throw new Error(
+      'That station is busy with another action - try again in a moment.',
+    );
   }
   if (!response.ok) {
     throw new Error(`${origin} answered ${response.status} for /status.`);
@@ -167,7 +212,12 @@ export async function resetBeamer(origin: string) {
 
   if (response.status === 409) {
     throw new Error(
-      'That station is busy with another action. Nothing was erased - try again in a moment.',
+      'That station is busy sending a replay, or with another action. Nothing was erased - try again in a moment.',
+    );
+  }
+  if (response.status === 400) {
+    throw new Error(
+      `${origin} refused the reset confirmation header. Is that a Beamer?`,
     );
   }
   if (!response.ok) {
