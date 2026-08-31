@@ -45,8 +45,6 @@ const electronHandler = {
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
     ipcRenderer.invoke('chooseReplaysDir'),
-  getBeamerAddress: (): Promise<string> =>
-    ipcRenderer.invoke('getBeamerAddress'),
   copyFromBeamer: (addressOrHost: string): Promise<string> =>
     ipcRenderer.invoke('copyFromBeamer', addressOrHost),
   refreshFromBeamer: (origin: string): Promise<void> =>

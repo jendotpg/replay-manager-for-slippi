@@ -9,19 +9,24 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
-  Divider,
   IconButton,
-  List,
-  ListItemButton,
-  ListItemText,
   Stack,
-  TextField,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   Tooltip,
   Typography,
 } from '@mui/material';
-import { DeleteForever, Refresh, Warning } from '@mui/icons-material';
-import { FormEvent, useEffect, useState } from 'react';
-import { BeamerGame, BeamerStation } from '../common/types';
+import {
+  DeleteForever,
+  ErrorOutline,
+  Refresh,
+  Warning,
+} from '@mui/icons-material';
+import { useEffect, useRef, useState } from 'react';
+import { BeamerGame, BeamerPort, BeamerStation } from '../common/types';
 import { EMPTY_BEAMER_FLEET, characterNames } from '../common/constants';
 import getCharacterIcon from './getCharacterIcon';
 
@@ -29,71 +34,154 @@ function labelFor(station: BeamerStation) {
   return station.stationName || station.stationId || station.address;
 }
 
-function healthIconFor(station: BeamerStation) {
+function warningsFor(station: BeamerStation) {
+  return station.warnings.join(', ');
+}
+
+function formatSecs(secs: number | null) {
+  if (secs === null || secs < 0) {
+    return '—';
+  }
+  if (secs < 60) {
+    return `${secs}s`;
+  }
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) {
+    return `${mins}m ${`${secs % 60}`.padStart(2, '0')}s`;
+  }
+  return `${Math.floor(mins / 60)}h ${`${mins % 60}`.padStart(2, '0')}m`;
+}
+
+function formatReplays(station: BeamerStation) {
+  if (station.replayCount < 0) {
+    return '\u2014';
+  }
+  return station.replayCap >= 0
+    ? `${station.replayCount} / ${station.replayCap}`
+    : `${station.replayCount}`;
+}
+
+function StationsTooltip({
+  showWarnings,
+  stations,
+}: {
+  showWarnings: boolean;
+  stations: BeamerStation[];
+}) {
+  return (
+    <Stack gap="2px">
+      {stations.map((station) => {
+        const warnings = showWarnings ? warningsFor(station) : '';
+        return (
+          <Typography key={station.address} variant="caption">
+            {warnings
+              ? `${labelFor(station)} — ${warnings}`
+              : labelFor(station)}
+          </Typography>
+        );
+      })}
+    </Stack>
+  );
+}
+
+function HealthIcon({ station }: { station: BeamerStation }) {
   if (station.health !== 'warn' && station.health !== 'error') {
     return null;
   }
+  const icon =
+    station.health === 'error' ? (
+      <ErrorOutline color="error" fontSize="small" />
+    ) : (
+      <Warning color="warning" fontSize="small" />
+    );
+  const warnings = warningsFor(station);
+  const title = warnings || (station.health === 'error' ? 'ERROR' : '');
+  return title ? (
+    <Tooltip arrow title={title}>
+      {icon}
+    </Tooltip>
+  ) : (
+    icon
+  );
+}
+
+const LIVE_DOT = {
+  live: { color: '#31d158', title: 'Game in progress' },
+  idle: { color: '#14532d', title: 'No game in progress' },
+  down: { color: '#f04438', title: 'ERROR' },
+};
+
+const DOWN_WARNINGS = ['DRIVE FULL', 'NO WII']; // udate if more "can't write" warnings are added...
+
+function LiveDot({ station }: { station: BeamerStation }) {
+  const down = station.warnings.filter((warning) =>
+    DOWN_WARNINGS.includes(warning),
+  );
+  let state: keyof typeof LIVE_DOT = 'idle';
+  if (station.health === 'error' || down.length > 0) {
+    state = 'down';
+  } else if (station.game?.live) {
+    state = 'live';
+  }
+  const { color } = LIVE_DOT[state];
+  const dot = (
+    <span
+      style={{
+        backgroundColor: color,
+        borderRadius: '50%',
+        boxShadow: state === 'idle' ? 'none' : `0 0 6px ${color}`,
+        display: 'inline-block',
+        height: '10px',
+        width: '10px',
+      }}
+    />
+  );
+  if (state !== 'down') {
+    return dot;
+  }
   const title =
-    station.warnings.length > 0
-      ? station.warnings.join(', ')
-      : "ERROR. Check Beamer.";
+    station.health === 'error'
+      ? warningsFor(station) || LIVE_DOT.down.title
+      : down.join(', ');
   return (
     <Tooltip arrow title={title}>
-      <Warning
-        color={station.health === 'error' ? 'error' : 'warning'}
-        fontSize="small"
-      />
+      {dot}
     </Tooltip>
   );
 }
 
-function secondaryFor(station: BeamerStation) {
-  const parts = [station.address];
-  if (station.replayCount >= 0) {
-    parts.push(
-      station.replayCap >= 0
-        ? `${station.replayCount}/${station.replayCap} replays`
-        : `${station.replayCount} replays`,
-    );
+function PortCell({
+  game,
+  port,
+}: {
+  game: BeamerGame | null;
+  port: BeamerPort | undefined;
+}) {
+  if (!port) {
+    return <TableCell />;
   }
-  if (station.ssid) {
-    parts.push(station.ssid);
-  }
-  return parts.join(' · ');
-}
-
-function GamePorts({ game }: { game: BeamerGame }) {
-  if (game.ports.length === 0) {
-    return null;
-  }
+  const charName =
+    (port.charId === null ? port.char : characterNames.get(port.charId)) ||
+    port.char;
   return (
-    <Stack gap="4px" marginTop="4px">
-      <Typography color="text.secondary" variant="caption">
-        {game.live ? 'Game in progress' : 'Last game'}
-      </Typography>
-      <Stack direction="row" flexWrap="wrap" gap="4px">
-        {game.ports.map((port) => (
-          <Chip
-            key={port.port}
-            icon={
-              <Avatar
-                alt={
-                  port.charId === null
-                    ? port.char
-                    : characterNames.get(port.charId)
-                }
-                src={getCharacterIcon(port.charId ?? 31, port.costume)}
-                style={{ height: '24px', width: '24px' }}
-                variant="square"
-              />
-            }
-            label={port.nametag || `P${port.port}`}
-            size="small"
-            variant="outlined"
+    <TableCell>
+      <Stack alignItems="center" direction="row" gap="4px">
+        <Tooltip arrow title={charName}>
+          <Avatar
+            alt={charName}
+            src={getCharacterIcon(port.charId ?? 31, port.costume)}
+            style={{ height: '24px', width: '24px' }}
+            variant="square"
           />
-        ))}
+        </Tooltip>
+        <Typography
+          color={game?.live ? 'text.primary' : 'text.secondary'}
+          variant="body2"
+        >
+          {port.nametag || `P${port.port}`}
+        </Typography>
       </Stack>
-    </Stack>
+    </TableCell>
   );
 }
 
@@ -105,7 +193,6 @@ export default function BeamerDialog({
   onClose: () => void;
 }) {
   const [fleet, setFleet] = useState(EMPTY_BEAMER_FLEET);
-  const [addressOrHost, setAddressOrHost] = useState('');
   const [copying, setCopying] = useState('');
   const [refreshing, setRefreshing] = useState('');
   const [confirmingReset, setConfirmingReset] = useState<
@@ -113,6 +200,21 @@ export default function BeamerDialog({
   >(null);
   const [resetting, setResetting] = useState('');
   const [error, setError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
+
+  const baselines = useRef(new Map<string, { secs: number; at: number }>());
+  const liveSecs = (key: string, reported: number | null) => {
+    if (reported === null) {
+      baselines.current.delete(key);
+      return null;
+    }
+    const previous = baselines.current.get(key);
+    if (!previous || previous.secs !== reported) {
+      baselines.current.set(key, { secs: reported, at: Date.now() });
+      return reported;
+    }
+    return previous.secs + Math.floor((now - previous.at) / 1000);
+  };
 
   useEffect(() => {
     window.electron.onBeamerFleet((_event, newFleet) => {
@@ -123,17 +225,16 @@ export default function BeamerDialog({
   useEffect(() => {
     if (!open) {
       window.electron.stopBeamerBrowse();
-      return;
+      return undefined;
     }
 
     setError('');
     (async () => {
-      const rememberedPromise = window.electron.getBeamerAddress();
-      const fleetPromise = window.electron.getBeamerFleet();
-      setAddressOrHost(await rememberedPromise);
-      setFleet(await fleetPromise);
+      setFleet(await window.electron.getBeamerFleet());
       await window.electron.startBeamerBrowse();
     })();
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
   }, [open]);
 
   const select = async (address: string) => {
@@ -191,16 +292,11 @@ export default function BeamerDialog({
     }
   };
 
-  const copyOnSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!addressOrHost) {
-      return;
-    }
-    await select(addressOrHost);
-  };
-
   const busy = Boolean(copying);
+  const erroring = fleet.stations.filter(
+    (station) => station.health === 'error',
+  );
+  const warning = fleet.stations.filter((station) => station.health === 'warn');
 
   let confirmingResetCount =
     "Every replay on this station's drive will be erased. This cannot be undone.";
@@ -215,6 +311,7 @@ export default function BeamerDialog({
   return (
     <Dialog
       fullWidth
+      maxWidth="md"
       open={open}
       onClose={() => {
         if (!busy) {
@@ -228,7 +325,41 @@ export default function BeamerDialog({
           direction="row"
           justifyContent="space-between"
         >
-          Beamers
+          <Stack alignItems="center" direction="row" gap="8px">
+            Beamers
+            {erroring.length > 0 && (
+              <Tooltip
+                arrow
+                title={
+                  <StationsTooltip showWarnings={false} stations={erroring} />
+                }
+              >
+                <Chip
+                  color="error"
+                  icon={<ErrorOutline />}
+                  label={`${erroring.length} error${
+                    erroring.length === 1 ? '' : 's'
+                  }`}
+                  size="small"
+                />
+              </Tooltip>
+            )}
+            {warning.length > 0 && (
+              <Tooltip
+                arrow
+                title={<StationsTooltip showWarnings stations={warning} />}
+              >
+                <Chip
+                  color="warning"
+                  icon={<Warning />}
+                  label={`${warning.length} warning${
+                    warning.length === 1 ? '' : 's'
+                  }`}
+                  size="small"
+                />
+              </Tooltip>
+            )}
+          </Stack>
           {fleet.stations.length > 0 && (
             <Tooltip
               arrow
@@ -251,79 +382,130 @@ export default function BeamerDialog({
       </DialogTitle>
       <DialogContent>
         {fleet.stations.length > 0 ? (
-          <List dense>
-            {fleet.stations.map((station) => (
-              <ListItemButton
-                alignItems="flex-start"
-                disabled={busy}
-                key={station.address}
-                onClick={() => {
-                  select(station.address);
-                }}
-              >
-                <ListItemText
-                  disableTypography
-                  primary={
-                    <Stack alignItems="center" direction="row" gap="8px">
-                      <Tooltip arrow title={station.stationId || station.host}>
-                        <Typography variant="body2">
-                          {labelFor(station)}
-                        </Typography>
-                      </Tooltip>
-                      {healthIconFor(station)}
-                    </Stack>
-                  }
-                  secondary={
-                    <>
-                      <Typography color="text.secondary" variant="caption">
-                        {secondaryFor(station)}
-                      </Typography>
-                      {station.game && <GamePorts game={station.game} />}
-                    </>
-                  }
-                />
-                <Tooltip arrow title="Re-run this station's status check">
-                  <span>
-                    <IconButton
-                      disabled={
-                        busy || Boolean(refreshing) || Boolean(resetting)
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell />
+                <TableCell>Station</TableCell>
+                <TableCell>Live</TableCell>
+                <TableCell>Replays</TableCell>
+                <TableCell>P1</TableCell>
+                <TableCell>P2</TableCell>
+                <TableCell>Ports changed</TableCell>
+                <TableCell>Characters changed</TableCell>
+                <TableCell />
+                <TableCell />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {fleet.stations.map((station) => {
+                const ports = [...(station.game?.ports ?? [])].sort(
+                  (a, b) => a.port - b.port,
+                );
+                return (
+                  <TableRow
+                    hover
+                    key={station.address}
+                    onClick={() => {
+                      if (!busy) {
+                        select(station.address);
                       }
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        refresh(station.address);
-                      }}
-                    >
-                      {refreshing === station.address ? (
-                        <CircularProgress size="24px" />
-                      ) : (
-                        <Refresh />
-                      )}
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip arrow title="Erase this station's replays">
-                  <span>
-                    <IconButton
-                      disabled={busy || Boolean(resetting)}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setConfirmingReset(station);
-                      }}
-                    >
-                      {resetting === station.address ? (
-                        <CircularProgress size="24px" />
-                      ) : (
-                        <DeleteForever color="error" />
-                      )}
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                {copying === station.address && (
-                  <CircularProgress size="24px" />
-                )}
-              </ListItemButton>
-            ))}
-          </List>
+                    }}
+                    style={{ cursor: busy ? 'default' : 'pointer' }}
+                  >
+                    <TableCell>
+                      <HealthIcon station={station} />
+                    </TableCell>
+                    <TableCell>
+                      <Stack alignItems="center" direction="row" gap="8px">
+                        <Tooltip
+                          arrow
+                          title={station.stationId || station.host}
+                        >
+                          <Typography variant="body2">
+                            {labelFor(station)}
+                          </Typography>
+                        </Tooltip>
+                        {copying === station.address && (
+                          <CircularProgress size="16px" />
+                        )}
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      <LiveDot station={station} />
+                    </TableCell>
+                    <TableCell>
+                      <Typography color="text.secondary" variant="body2">
+                        {formatReplays(station)}
+                      </Typography>
+                    </TableCell>
+                    <PortCell game={station.game} port={ports[0]} />
+                    <PortCell game={station.game} port={ports[1]} />
+                    <TableCell>
+                      <Typography color="text.secondary" variant="body2">
+                        {formatSecs(
+                          liveSecs(
+                            `${station.address}:ports`,
+                            station.secsSincePortChange,
+                          ),
+                        )}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography color="text.secondary" variant="body2">
+                        {formatSecs(
+                          liveSecs(
+                            `${station.address}:chars`,
+                            station.secsSinceCharacterChange,
+                          ),
+                        )}
+                      </Typography>
+                    </TableCell>
+                    <TableCell padding="none">
+                      <Tooltip arrow title="Re-run this station's status check">
+                        <span>
+                          <IconButton
+                            disabled={
+                              busy || Boolean(refreshing) || Boolean(resetting)
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              refresh(station.address);
+                            }}
+                          >
+                            {refreshing === station.address ? (
+                              <CircularProgress size="24px" />
+                            ) : (
+                              <Refresh />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell padding="none">
+                      <Tooltip arrow title="Erase this station's replays">
+                        <span>
+                          <IconButton
+                            disabled={busy || Boolean(resetting)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setConfirmingReset(station);
+                            }}
+                          >
+                            {resetting === station.address ? (
+                              <CircularProgress size="24px" />
+                            ) : (
+                              <DeleteForever color="error" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         ) : (
           <Alert severity="info" style={{ marginTop: '8px' }}>
             {fleet.browsing
@@ -336,38 +518,6 @@ export default function BeamerDialog({
             {`Could not listen for Beamers: ${fleet.error}`}
           </Alert>
         )}
-        <Divider style={{ marginTop: '16px' }} />
-        <DialogContentText marginTop="8px" variant="body2">
-          Or type the station&apos;s IP address, or its hostname if you know it.
-        </DialogContentText>
-        <form onSubmit={copyOnSubmit}>
-          <Stack alignItems="center" direction="row" gap="8px" marginTop="8px">
-            <TextField
-              fullWidth
-              disabled={busy}
-              label="Beamer address"
-              onChange={(event) => {
-                setAddressOrHost(event.target.value);
-              }}
-              placeholder="192.168.1.42"
-              size="small"
-              value={addressOrHost}
-              variant="standard"
-            />
-            <Button
-              disabled={!addressOrHost || busy}
-              endIcon={
-                copying === addressOrHost ? (
-                  <CircularProgress size="24px" />
-                ) : undefined
-              }
-              type="submit"
-              variant="contained"
-            >
-              Select
-            </Button>
-          </Stack>
-        </form>
         {error && (
           <Alert
             severity="error"

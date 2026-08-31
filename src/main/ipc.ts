@@ -406,22 +406,23 @@ export default function setupIPCs(
     mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
   };
 
-  let beamerAddress = store.get('beamerAddress', '') as string;
-  ipcMain.removeHandler('getBeamerAddress');
-  ipcMain.handle('getBeamerAddress', () => beamerAddress);
-
   const beamerStations = new Map<string, BeamerStation>();
   let beamerBrowse: BeamerBrowseHandle | null = null;
   let beamerPollTimer: NodeJS.Timeout | null = null;
   let beamerFleetError = '';
 
-  const sendBeamerFleet = () => {
-    const fleet: BeamerFleet = {
-      stations: Array.from(beamerStations.values()).sort((a, b) =>
+  const listedBeamerStations = () =>
+    Array.from(beamerStations.values())
+      .filter((station) => station.reported)
+      .sort((a, b) =>
         (a.stationName || a.stationId || a.address).localeCompare(
           b.stationName || b.stationId || b.address,
         ),
-      ),
+      );
+
+  const sendBeamerFleet = () => {
+    const fleet: BeamerFleet = {
+      stations: listedBeamerStations(),
       browsing: beamerBrowse !== null,
       error: beamerFleetError,
     };
@@ -524,9 +525,6 @@ export default function setupIPCs(
         ? status.body.station_name
         : '';
     const label = stationName || beamerName(origin, stationId);
-
-    beamerAddress = addressOrHost.trim();
-    store.set('beamerAddress', beamerAddress);
 
     const dest = beamerDirFor(beamerFullPath, origin, stationId);
     (async () => {
@@ -645,7 +643,7 @@ export default function setupIPCs(
   ipcMain.removeHandler('getBeamerFleet');
   ipcMain.handle('getBeamerFleet', (): BeamerFleet => {
     return {
-      stations: Array.from(beamerStations.values()),
+      stations: listedBeamerStations(),
       browsing: beamerBrowse !== null,
       error: beamerFleetError,
     };
@@ -683,7 +681,7 @@ export default function setupIPCs(
 
   ipcMain.removeHandler('resetAllBeamerStations');
   ipcMain.handle('resetAllBeamerStations', async (): Promise<string[]> => {
-    const targets = Array.from(beamerStations.values());
+    const targets = listedBeamerStations();
     if (targets.length === 0) {
       throw new Error('No stations are advertising themselves.');
     }
