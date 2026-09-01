@@ -123,12 +123,12 @@ import { downloadFile, resolveHtmlPath } from './util';
 import {
   beamerDirFor,
   beamerName,
-  clearBeamerCache,
+  clearReplayCache,
   firstMissingFile,
-  getBeamerCacheSize,
+  getReplayCacheSize,
   getBeamerIndex,
   listCachedReplays,
-  pruneBeamerDir,
+  pruneStaleReplays,
   pullFromBeamer,
   toBeamerOrigin,
 } from './beamer';
@@ -174,9 +174,10 @@ type ReplayDir = {
 
 let entrantsWindow: BrowserWindow | null = null;
 
-const protocolLoadFullPath = path.join(app.getPath('userData'), 'protocol');
+const replayCacheFullPath = path.join(app.getPath('userData'), 'replayCache');
+const protocolLoadFullPath = path.join(replayCacheFullPath, 'protocol');
+const beamerFullPath = path.join(replayCacheFullPath, 'beamer');
 const undoDstFullPath = path.join(app.getPath('userData'), 'undo');
-const beamerFullPath = path.join(app.getPath('userData'), 'beamer');
 
 export default function setupIPCs(
   mainWindow: BrowserWindow,
@@ -231,8 +232,21 @@ export default function setupIPCs(
 
   let slpDownloadStatus: SlpDownloadStatus = { status: 'idle' };
 
+  let slpDownload: AbortController | null = null;
+  const startSlpDownload = () => {
+    slpDownload?.abort();
+    slpDownload = new AbortController();
+    return slpDownload.signal;
+  };
+  const endSlpDownload = (signal: AbortSignal) => {
+    if (slpDownload?.signal === signal) {
+      slpDownload = null;
+    }
+  };
+
   async function handleProtocolLoadSlpUrls(slpUrls: string[]) {
     await mkdir(protocolLoadFullPath, { recursive: true });
+    const signal = startSlpDownload();
     const failedFiles: string[] = [];
     const total = slpUrls.length;
     let completed = 0;
@@ -254,20 +268,34 @@ export default function setupIPCs(
     if (total > 0) {
       send(path.basename(new URL(slpUrls[0]).pathname));
     }
-    await Promise.all(
-      slpUrls.map(async (url) => {
-        const fileName = path.basename(new URL(url).pathname);
-        const dest = path.join(protocolLoadFullPath, fileName);
-        try {
-          await downloadFile(url, dest);
-        } catch (err) {
-          failedFiles.push(url);
-        } finally {
-          completed += 1;
-          send(fileName);
-        }
-      }),
-    );
+    try {
+      await Promise.all(
+        slpUrls.map(async (url) => {
+          const fileName = path.basename(new URL(url).pathname);
+          const dest = path.join(protocolLoadFullPath, fileName);
+          try {
+            await downloadFile(url, dest, { signal });
+          } catch (err) {
+            failedFiles.push(url);
+          } finally {
+            completed += 1;
+            send(fileName);
+          }
+        }),
+      );
+    } finally {
+      endSlpDownload(signal);
+    }
+
+    if (signal.aborted) {
+      slpDownloadStatus = {
+        status: 'cancelled',
+        filesDone: total - failedFiles.length,
+        totalFiles: total,
+      };
+      mainWindow?.webContents.send('slp-download-status', slpDownloadStatus);
+      return;
+    }
 
     slpDownloadStatus = {
       status: 'downloading',
@@ -422,16 +450,9 @@ export default function setupIPCs(
     mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
   };
 
-  let beamerPull: AbortController | null = null;
-  const startBeamerPull = () => {
-    beamerPull?.abort();
-    beamerPull = new AbortController();
-    return beamerPull.signal;
-  };
-
-  ipcMain.removeHandler('cancelBeamerDownload');
-  ipcMain.handle('cancelBeamerDownload', () => {
-    beamerPull?.abort();
+  ipcMain.removeHandler('cancelSlpDownload');
+  ipcMain.handle('cancelSlpDownload', () => {
+    slpDownload?.abort();
   });
 
   const beamerStations = new Map<string, BeamerStation>();
@@ -457,7 +478,7 @@ export default function setupIPCs(
     mainWindow.webContents.send('beamerFleet', fleet);
   };
 
-  const pruneBeamerCacheFor = async (station: BeamerStation) => {
+  const pruneStaleReplaysFor = async (station: BeamerStation) => {
     if (!station.stationId) {
       return;
     }
@@ -469,7 +490,7 @@ export default function setupIPCs(
     }
 
     const { files } = await getBeamerIndex(origin);
-    const stale = await pruneBeamerDir(
+    const stale = await pruneStaleReplays(
       dest,
       cached,
       files.map((file) => file.name),
@@ -504,10 +525,9 @@ export default function setupIPCs(
     beamerStations.set(base.address, station);
 
     try {
-      await pruneBeamerCacheFor(station);
+      await pruneStaleReplaysFor(station);
     } catch {
-      // A station that will not hand over its index tells us nothing about
-      // what it has deleted, so the cache stays as it is.
+      // if there's no index, we don't know whats stale - just noop.
     }
   };
 
@@ -520,8 +540,7 @@ export default function setupIPCs(
         try {
           await refreshBeamerStation(base, false);
         } catch {
-          // A missed poll is not a lost station - a Beamer mid-flush can just
-          // be slow. serviceLost is what takes a station off the list.
+          // not necessarily lost, might just be blocked :P
         }
       }),
     );
@@ -555,7 +574,7 @@ export default function setupIPCs(
     const label = stationName || beamerName(origin, stationId);
 
     const dest = beamerDirFor(beamerFullPath, origin, stationId);
-    const signal = startBeamerPull();
+    const signal = startSlpDownload();
     (async () => {
       try {
         await pullFromBeamer(
@@ -565,7 +584,7 @@ export default function setupIPCs(
           signal,
         );
       } finally {
-        beamerPull = null;
+        endSlpDownload(signal);
       }
       const existingI = replayDirs.findIndex(({ dir }) => dir === dest);
       if (existingI >= 0) {
@@ -593,7 +612,7 @@ export default function setupIPCs(
     }
 
     const { files } = await getBeamerIndex(origin);
-    const signal = startBeamerPull();
+    const signal = startSlpDownload();
     try {
       await pullFromBeamer(
         current.dir,
@@ -602,7 +621,7 @@ export default function setupIPCs(
         signal,
       );
     } finally {
-      beamerPull = null;
+      endSlpDownload(signal);
     }
   });
 
@@ -641,23 +660,24 @@ export default function setupIPCs(
       return;
     }
 
-    const signal = startBeamerPull();
+    const signal = startSlpDownload();
     try {
       await pullFromBeamer(dir, [next], sendBeamerDownloadStatus, signal);
     } finally {
-      beamerPull = null;
+      endSlpDownload(signal);
     }
   });
 
-  ipcMain.removeHandler('getBeamerCacheSize');
-  ipcMain.handle('getBeamerCacheSize', () =>
-    getBeamerCacheSize(beamerFullPath),
+  ipcMain.removeHandler('getReplayCacheSize');
+  ipcMain.handle('getReplayCacheSize', () =>
+    getReplayCacheSize(replayCacheFullPath),
   );
 
-  ipcMain.removeHandler('clearBeamerCache');
-  ipcMain.handle('clearBeamerCache', async () => {
-    if (replayDirs.some(({ beamerOrigin }) => beamerOrigin)) {
-      replayDirs = replayDirs.filter(({ beamerOrigin }) => !beamerOrigin);
+  ipcMain.removeHandler('clearReplayCache');
+  ipcMain.handle('clearReplayCache', async () => {
+    const cached = ({ dir }: ReplayDir) => dir.startsWith(replayCacheFullPath);
+    if (replayDirs.some(cached)) {
+      replayDirs = replayDirs.filter((replayDir) => !cached(replayDir));
       const newDir =
         replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
       mainWindow.webContents.send(
@@ -668,7 +688,7 @@ export default function setupIPCs(
         newDir?.beamerName ?? '',
       );
     }
-    await clearBeamerCache(beamerFullPath);
+    await clearReplayCache(replayCacheFullPath);
   });
 
   ipcMain.removeHandler('startBeamerBrowse');

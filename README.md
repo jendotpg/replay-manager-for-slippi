@@ -5,8 +5,6 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 ## TODO:
 
 1. disable large time-gap detected when pulling from a beamer :P
-2. fix broken cancel during protocol load
-   1. "A failed protocol download now leaves a `.part` file behind. Upstream unlinked the partial file; the fork keeps it on purpose so a retry can resume, but nothing prunes `userData/protocol` the way `pruneBeamerDir` prunes the Beamer cache." > make "delete beamer cache" be "delete replay cache" and include these!
 
 ## What a Beamer is
 
@@ -93,7 +91,7 @@ It was already overloaded before I touched it. Upstream at `2.5.1`, `usbstorage`
 
 1. `detect-usb` insert -> `addReplayDir(dir, key)`.
 2. `detect-usb` eject -> re-announce whatever directory is now top of stack (possibly `''`).
-3. `handleProtocolLoadSlpUrls` finishing a `slippi:` download -> `addReplayDir(protocolLoadFullPath, '')` — not a USB event, with `isUsb` false.
+3. `handleProtocolLoadSlpUrls` finishing a `replay-manager:` download -> `addReplayDir(protocolLoadFullPath, '')` — not a USB event, with `isUsb` false.
 
 It seems like this channel is really meant to control "what displays in the top-left corner showing replay origin" and not per se usbs.
 
@@ -124,7 +122,7 @@ A few notes:
 - `ReplayDir`got new fields to account for a new type of location
 - The fleet poll is forgiving. A failed `/status` poll does not remove a station from the list — only mDNS `serviceLost` does.
 - The fleet is keyed by address, not by station name. Nothing stops two stations from advertising the same instance name.
-- Pulling .slps from the Beamer index is windowed. `maxGamesFromIndex` caps how many of the newest index entries `copyFromBeamer` and `refreshFromBeamer` pass to `pullFromBeamer`. `pruneBeamerCacheFor` still passes the full index to `pruneBeamerDir`, so a replay that fell outside the download window is still shown if it was previously cached (or as it's downloaded row-by-row).
+- Pulling .slps from the Beamer index is windowed. `maxGamesFromIndex` caps how many of the newest index entries `copyFromBeamer` and `refreshFromBeamer` pass to `pullFromBeamer`. `pruneStaleReplaysFor` still passes the full index to `pruneStaleReplays`, so a replay that fell outside the download window is still shown if it was previously cached (or as it's downloaded row-by-row).
 
 ### `src/main/preload.ts` — matching changes to the bridge
 
@@ -136,9 +134,11 @@ A few notes:
 
 ### `SetControls.tsx`- disable delete from beamer cache
 
-### `Settings.tsx`- let user delete beamer cache
+### `Settings.tsx`- let user delete cached replays
 
 ### `SlpDownloadModal.tsx` - a Cancel button, a `cancelled` state, an `(n of m)` counter, and a "retrying" line
+
+Cancel is not Beamer-specific: `cancelSlpDownload` aborts whichever download is running, so it works for protocol loads too.
 
 ### `common/`- new beamer types and constant
 
@@ -146,14 +146,14 @@ A few notes:
 
 No new dependencies.
 
-No new download or progress UI. The `slippi:` protocol handler already had `SlpDownloadStatus`, the `slp-download-status` channel, and `SlpDownloadModal`. The Beamer pull emits the same statuses on the same channel into the same modal. `pullFromBeamer` takes an `onStatus` callback for exactly this reason. The status payload gained three optional fields and one new variant; the modal gained a Cancel button and a retry line.
+No new download or progress UI. The `replay-manager:` protocol handler already had `SlpDownloadStatus`, the `slp-download-status` channel, and `SlpDownloadModal`. The Beamer pull emits the same statuses on the same channel into the same modal. `pullFromBeamer` takes an `onStatus` callback for exactly this reason. The status payload gained three optional fields and one new variant; the modal gained a Cancel button and a retry line.
 
 Four things change for someone who never touches a beamer:
 
-1. `downloadFile` is shared with the `slippi:` protocol handler, so that path inherits the resume, the retries, the watchdogs, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
-2. A failed protocol download now leaves a `.part` file behind. Upstream unlinked the partial file; the fork keeps it on purpose so a retry can resume, but nothing prunes `userData/protocol` the way `pruneBeamerDir` prunes the Beamer cache. TODO: fix this
-3. The modal's Cancel button shows during a protocol download and does nothing — it calls `cancelBeamerDownload`, and there is no Beamer pull to abort. TODO: fix this
-4. Two controls are always visible: the Beamer button in the app bar, and the "Beamer cache is empty" row with its disabled Clear button in Settings.
+1. `downloadFile` is shared with the `replay-manager:` protocol handler, so that path inherits the resume, the retries, the watchdogs, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
+2. A failed or cancelled protocol download leaves a `.part` file behind. Upstream unlinked the partial file; the fork keeps it so a retry resumes, and Settings can delete it. If the host ignores `Range` the fragment is dropped and the file downloads in full upon retry.
+3. Protocol downloads moved from `userData/protocol` to `userData/replayCache/protocol`, alongside the Beamer cache at `userData/replayCache/beamer`. One "Delete cached replays" button in Settings clears both, fragments included.
+4. Two controls are always visible: the Beamer button in the app bar, and the "No cached replays" row with its disabled Delete button in Settings.
 
 No background network traffic. The mDNS browser and the 10 s fleet poll run only while the dialog is open. A TO who never opens it never sees a multicast packet.
 

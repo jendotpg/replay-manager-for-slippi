@@ -2036,7 +2036,7 @@ function Hello() {
           setSlpDownloadStatus({ status: 'idle' });
         }}
         onCancel={async () => {
-          await window.electron.cancelBeamerDownload();
+          await window.electron.cancelSlpDownload();
         }}
       />
       <BeamerDialog

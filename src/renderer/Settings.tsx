@@ -157,14 +157,14 @@ export default function Settings({
 
   const [choosingTrashDir, setChoosingTrashDir] = useState(false);
 
-  const [beamerCache, setBeamerCache] = useState({ files: 0, bytes: 0 });
-  const [clearingBeamerCache, setClearingBeamerCache] = useState(false);
+  const [replayCache, setReplayCache] = useState({ files: 0, bytes: 0 });
+  const [clearingReplayCache, setClearingReplayCache] = useState(false);
   useEffect(() => {
     if (!open) {
       return;
     }
     (async () => {
-      setBeamerCache(await window.electron.getBeamerCacheSize());
+      setReplayCache(await window.electron.getReplayCacheSize());
     })();
   }, [open]);
 
@@ -453,33 +453,33 @@ export default function Settings({
               alignItems="center"
             >
               <Typography variant="caption">
-                {beamerCache.files > 0
-                  ? `Beamer cache: ${beamerCache.files} replays (${toMegabytes(
-                      beamerCache.bytes,
+                {replayCache.files > 0
+                  ? `Cached replays: ${replayCache.files} (${toMegabytes(
+                      replayCache.bytes,
                     )})`
-                  : 'Beamer cache is empty'}
+                  : 'No cached replays'}
               </Typography>
               <Button
-                disabled={beamerCache.files === 0 || clearingBeamerCache}
+                disabled={replayCache.files === 0 || clearingReplayCache}
                 endIcon={
-                  clearingBeamerCache ? (
+                  clearingReplayCache ? (
                     <CircularProgress size="24px" />
                   ) : undefined
                 }
                 onClick={async () => {
-                  setClearingBeamerCache(true);
+                  setClearingReplayCache(true);
                   try {
-                    await window.electron.clearBeamerCache();
-                    setBeamerCache({ files: 0, bytes: 0 });
+                    await window.electron.clearReplayCache();
+                    setReplayCache({ files: 0, bytes: 0 });
                   } catch (e: any) {
                     showErrorDialog([e instanceof Error ? e.message : e]);
                   } finally {
-                    setClearingBeamerCache(false);
+                    setClearingReplayCache(false);
                   }
                 }}
                 variant="contained"
               >
-                Clear Beamer cache
+                Delete cached replays
               </Button>
             </Stack>
             <LabeledCheckbox

@@ -314,7 +314,7 @@ export async function listCachedReplays(dest: string) {
   }
 }
 
-export async function pruneBeamerDir(
+export async function pruneStaleReplays(
   dest: string,
   cached: string[],
   indexNames: string[],
@@ -344,45 +344,45 @@ export async function pruneBeamerDir(
   return stale;
 }
 
-export async function getBeamerCacheSize(cacheRoot: string) {
-  let stationDirs: string[];
-  try {
-    stationDirs = (await readdir(cacheRoot, { withFileTypes: true }))
-      .filter((dirent) => dirent.isDirectory())
-      .map((dirent) => dirent.name);
-  } catch {
-    return { files: 0, bytes: 0 };
-  }
-
+export async function getReplayCacheSize(cacheRoot: string) {
   let files = 0;
   let bytes = 0;
-  await Promise.all(
-    stationDirs.map(async (stationDir) => {
-      const stationPath = path.join(cacheRoot, stationDir);
-      let names: string[];
-      try {
-        names = (await readdir(stationPath, { withFileTypes: true }))
-          .filter((dirent) => dirent.isFile())
-          .map((dirent) => dirent.name);
-      } catch {
-        return;
-      }
-      await Promise.all(
-        names.map(async (name) => {
-          try {
-            const stats = await stat(path.join(stationPath, name));
-            files += 1;
-            bytes += stats.size;
-          } catch {
-            // gone between the readdir and the stat, close enough
-          }
-        }),
-      );
-    }),
-  );
+
+  const walk = async (dir: string) => {
+    let dirents;
+    try {
+      dirents = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    await Promise.all(
+      dirents.map(async (dirent) => {
+        const full = path.join(dir, dirent.name);
+        if (dirent.isDirectory()) {
+          await walk(full);
+          return;
+        }
+        if (
+          !dirent.name.endsWith('.slp') &&
+          !dirent.name.endsWith('.slp.part')
+        ) {
+          return;
+        }
+        try {
+          const stats = await stat(full);
+          files += 1;
+          bytes += stats.size;
+        } catch {
+          // gone between the readdir and the stat...
+        }
+      }),
+    );
+  };
+
+  await walk(cacheRoot);
   return { files, bytes };
 }
 
-export async function clearBeamerCache(cacheRoot: string) {
+export async function clearReplayCache(cacheRoot: string) {
   await rm(cacheRoot, { recursive: true, force: true });
 }

@@ -49,8 +49,8 @@ const electronHandler = {
     ipcRenderer.invoke('copyFromBeamer', addressOrHost),
   refreshFromBeamer: (origin: string): Promise<void> =>
     ipcRenderer.invoke('refreshFromBeamer', origin),
-  cancelBeamerDownload: (): Promise<void> =>
-    ipcRenderer.invoke('cancelBeamerDownload'),
+  cancelSlpDownload: (): Promise<void> =>
+    ipcRenderer.invoke('cancelSlpDownload'),
   getMaxGamesFromIndex: (): Promise<number> =>
     ipcRenderer.invoke('getMaxGamesFromIndex'),
   setMaxGamesFromIndex: (maxGamesFromIndex: number): Promise<number> =>
@@ -62,9 +62,9 @@ const electronHandler = {
   getTrashDir: (): Promise<string> => ipcRenderer.invoke('getTrashDir'),
   chooseTrashDir: (): Promise<string> => ipcRenderer.invoke('chooseTrashDir'),
   clearTrashDir: (): Promise<void> => ipcRenderer.invoke('clearTrashDir'),
-  getBeamerCacheSize: (): Promise<{ files: number; bytes: number }> =>
-    ipcRenderer.invoke('getBeamerCacheSize'),
-  clearBeamerCache: (): Promise<void> => ipcRenderer.invoke('clearBeamerCache'),
+  getReplayCacheSize: (): Promise<{ files: number; bytes: number }> =>
+    ipcRenderer.invoke('getReplayCacheSize'),
+  clearReplayCache: (): Promise<void> => ipcRenderer.invoke('clearReplayCache'),
   startBeamerBrowse: (): Promise<void> =>
     ipcRenderer.invoke('startBeamerBrowse'),
   stopBeamerBrowse: (): Promise<void> => ipcRenderer.invoke('stopBeamerBrowse'),

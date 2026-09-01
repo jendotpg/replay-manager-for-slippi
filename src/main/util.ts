@@ -79,11 +79,11 @@ async function discard(file: string) {
   }
 }
 
-function statusError(status: number, resuming = false) {
+function statusError(status: number) {
   const retryable = status >= 500 || status === 408 || status === 429;
   return new DownloadError(`HTTP ${status}`, {
     retryable,
-    discardPartial: status === 404 || (resuming && status === 200), // 200 (server doesn't support range) sticks otherwise
+    discardPartial: status === 404,
   });
 }
 
@@ -144,17 +144,19 @@ async function downloadAttempt(
         discardPartial: true,
       });
     }
-    const wantStatus = from > 0 ? 206 : 200;
-    if (response.status !== wantStatus) {
-      throw statusError(response.status, from > 0);
+
+    const resumed = from > 0 && response.status === 206;
+    const start = resumed ? from : 0;
+    if (response.status !== (start > 0 ? 206 : 200)) {
+      throw statusError(response.status);
     }
     if (!response.body) {
       throw new DownloadError('no response body');
     }
 
-    const expected = expectedTotal(response, from, options.expectedSize);
+    const expected = expectedTotal(response, start, options.expectedSize);
 
-    let written = from;
+    let written = start;
     watchdog(STALL_TIMEOUT_MS);
     const counted = Readable.fromWeb(response.body as any).map(
       (chunk: Buffer) => {
@@ -168,7 +170,7 @@ async function downloadAttempt(
     try {
       await pipeline(
         counted,
-        createWriteStream(part, from > 0 ? { flags: 'a' } : {}),
+        createWriteStream(part, resumed ? { flags: 'a' } : {}),
       );
     } catch (error) {
       if (options.signal?.aborted) {
@@ -181,10 +183,9 @@ async function downloadAttempt(
     }
 
     if (expected >= 0 && written !== expected) {
-      throw new DownloadError(
-        `truncated (${written} of ${expected} bytes)`,
-        { discardPartial: written > expected },
-      );
+      throw new DownloadError(`truncated (${written} of ${expected} bytes)`, {
+        discardPartial: written > expected,
+      });
     }
     return written;
   } finally {
@@ -228,7 +229,7 @@ export async function downloadFile(
 
       // eslint-disable-next-line no-await-in-loop
       const written = await sizeOf(part);
-      if (written > best) {
+      if (written !== best) {
         best = written;
         attempts = 0;
       } else {
