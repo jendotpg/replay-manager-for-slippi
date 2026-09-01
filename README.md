@@ -4,12 +4,13 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 ## TODO:
 
-1. fix progress bar - we know the full amount to be downloaded! do progresss against that, not per file...
-2. update this document :)
+1. disable large time-gap detected when pulling from a beamer :P
+2. fix broken cancel during protocol load
+   1. "A failed protocol download now leaves a `.part` file behind. Upstream unlinked the partial file; the fork keeps it on purpose so a retry can resume, but nothing prunes `userData/protocol` the way `pruneBeamerDir` prunes the Beamer cache." > make "delete beamer cache" be "delete replay cache" and include these!
 
 ## What a Beamer is
 
-A [Beamer](https://github.com/jendotpg/slippi-beamer) is a microprocessor bolted to a Wii over the USB port. The beamer presents a disk image to the Wii as an ordinary USB flash drive. Slippi Nintendont writes `.slp` files to it believing it is a stick. The Beamer then serves those same replays over the tournament WiFi (or, for bigger tournaments, over a dedicated IoT access point).
+A [Beamer](https://github.com/jendotpg/slippi-beamer) is a microprocessor attached to a Wii over the USB port. The beamer presents a disk image to the Wii as an ordinary USB flash drive. Slippi Nintendont writes `.slp` files to it believing it is a stick. The Beamer then serves those same replays over the tournament WiFi (or, for bigger tournaments, over a dedicated IoT access point).
 
 In short: TOs can use beamers to report sets with only a station number - no need to send a flash drive back and forth.
 
@@ -84,68 +85,11 @@ Stations advertise `_beamer._tcp` on port 80.
 
 There's no authentication at all - if you can reach the beamer, you can do anything to it. This is part of why at bigger events they'll be on their own wifi.
 
-## Changes to replay manager
-
-### `src/main/beamer.ts` (new) — the replay index and the local cache
-
-### `src/main/discover.ts` (new) — mDNS, `/status`, `/reset-beamer`
-
-### `src/main/util.ts` — `downloadFile` moved out of `ipc.ts`
-
-Not new code. It was a closure inside `setupIPCs`; `beamer.ts` needed it, so it moved up to `util.ts` unchanged. The diff shows it as a pure relocation. The `slippi:` protocol handler still calls the same function.
-
-### `src/main/ipc.ts` — a number of changes to the stateful layer
-
-Everything mutable lives here. The `ReplayDir` record gained two fields:
-
-```ts
-type ReplayDir = {
-  dir: string;
-  usbKey: string;
-  beamerOrigin: string;
-  beamerName: string;
-};
-```
-
-Sixteen new `invoke` handlers (`copyFromBeamer`, `refreshFromBeamer`, `cancelBeamerDownload`, `getNextBeamerReplay`, `downloadNextBeamerReplay`, `getMaxGamesFromIndex` / `setMaxGamesFromIndex`, `startBeamerBrowse` / `stopBeamerBrowse`, `getBeamerFleet`, `refreshBeamerStatus`, `refreshAllBeamerStations`, `resetBeamerStation`, `resetAllBeamerStations`, `getBeamerCacheSize`, `clearBeamerCache`) and one new push channel, `beamerFleet`.
-
-A few notes:
-
-- The fleet poll is forgiving. A failed `/status` poll does not remove a station from the list — only mDNS `serviceLost` does.
-- The fleet is keyed by address, not by station name. Nothing stops two stations from advertising the same instance name.
-- Pulling .slps from the Beamer index is windowed. `maxGamesFromIndex` caps how many of the newest index entries `copyFromBeamer` and `refreshFromBeamer` pass to `pullFromBeamer`. `pruneBeamerCacheFor` still passes the full index to `pruneBeamerDir`, so a replay that fell outside the download window is still shown if it was previously cached (or downloaded row-by-row).
-
-### `src/main/preload.ts` — matching changes to the bridge
-
-Sixteen `invoke` wrappers, one `on` wrapper for `beamerFleet`, and two extra positional arguments on the existing `onUsb`. See below for the `onUsb` issue - I have some thoughts...
-
-### `src/renderer/BeamerDialog.tsx` (new) - dialog to manage beamer fleet
-
-### `src/renderer/ReplayList.tsx` - the "Download next replay" row
-
-### `src/renderer/App.tsx`- add beamer button and show source field for beamers
-
-### `SetControls.tsx`- disable delete from beamer cache
-
-### `Settings.tsx`- let user delete beamer cache
-
-### `common/`- new beamer types and constant
-
-## Non-changes to replay manager
-
-No new dependencies.
-
-No new download or progress UI. The `slippi:` protocol handler already had `SlpDownloadStatus`, the `slp-download-status` channel, and `SlpDownloadModal`. The Beamer pull emits the same statuses on the same channel into the same modal. `pullFromBeamer` takes an `onStatus` callback for exactly this reason.
-
-No change to behaviour when no Beamer is involved.
-
-No background network traffic. The mDNS browser and the 10 s fleet poll run only while the dialog is open. A TO who never opens it never sees a multicast packet.
-
 ## `usbstorage`/ `onUsb`
 
 `usbstorage` now carries two conceptually different things: "a USB drive was inserted" and "a Beamer was selected." They share an interface - this feels weird to me...
 
-However, it was already overloaded before I touched it. At `HEAD~1`, `usbstorage` had three producers:
+It was already overloaded before I touched it. Upstream at `2.5.1`, `usbstorage` had three producers:
 
 1. `detect-usb` insert -> `addReplayDir(dir, key)`.
 2. `detect-usb` eject -> re-announce whatever directory is now top of stack (possibly `''`).
@@ -161,7 +105,57 @@ A few notes:
 2. The name no longer describes any of its meanings, including the original one after eject re-announces a non-USB directory.
 3. There are two ways into the same renderer state. `chooseReplaysDir` and the undo path set `dir` / `isUsb` / `beamerOrigin` locally from a return value and never touch the channel. Adding Beamer fields doubled what those sites have to remember to clear (ew)
 
-I think this shape should probably be changed completely - but that's ... not really my call :P I can certainly split off onUsb from onBeamerSelect, but I'm not sure that really addresses the underlying issue.
+I think this shape should probably be changed completely (separating out `onUsb` vs `onReplayDir` or some other spelling ) - but that's ... not really my call :P. I can certainly split off just `onBeamerSelect` and just leave the admittedly much smaller `handleProtocolLoadSlpUrls`overload.
+
+## Changes to replay manager
+
+### `src/main/beamer.ts` (new) — the replay index and the local cache
+
+### `src/main/discover.ts` (new) — mDNS, `/status`, `/reset-beamer`
+
+### `src/main/util.ts` — `downloadFile` moved out of `ipc.ts`, now shared with the Beamer pull and rewritten to survive venue wifi
+
+### `src/main/ipc.ts` — a number of changes to the stateful layer
+
+Sixteen new `invoke` handlers (`copyFromBeamer`, `refreshFromBeamer`, `cancelBeamerDownload`, `getNextBeamerReplay`, `downloadNextBeamerReplay`, `getMaxGamesFromIndex` / `setMaxGamesFromIndex`, `startBeamerBrowse` / `stopBeamerBrowse`, `getBeamerFleet`, `refreshBeamerStatus`, `refreshAllBeamerStations`, `resetBeamerStation`, `resetAllBeamerStations`, `getBeamerCacheSize`, `clearBeamerCache`) and one new push channel, `beamerFleet`.
+
+A few notes:
+
+- `ReplayDir`got new fields to account for a new type of location
+- The fleet poll is forgiving. A failed `/status` poll does not remove a station from the list — only mDNS `serviceLost` does.
+- The fleet is keyed by address, not by station name. Nothing stops two stations from advertising the same instance name.
+- Pulling .slps from the Beamer index is windowed. `maxGamesFromIndex` caps how many of the newest index entries `copyFromBeamer` and `refreshFromBeamer` pass to `pullFromBeamer`. `pruneBeamerCacheFor` still passes the full index to `pruneBeamerDir`, so a replay that fell outside the download window is still shown if it was previously cached (or as it's downloaded row-by-row).
+
+### `src/main/preload.ts` — matching changes to the bridge
+
+### `src/renderer/BeamerDialog.tsx` (new) - dialog to manage beamer fleet
+
+### `src/renderer/ReplayList.tsx` - the "Download next replay" row
+
+### `src/renderer/App.tsx` - add beamer button, show the Beamer as the source, disable eject / delete paths for Beamer sources, and point Refresh at the Beamer
+
+### `SetControls.tsx`- disable delete from beamer cache
+
+### `Settings.tsx`- let user delete beamer cache
+
+### `SlpDownloadModal.tsx` - a Cancel button, a `cancelled` state, an `(n of m)` counter, and a "retrying" line
+
+### `common/`- new beamer types and constant
+
+## Non-changes to replay manager
+
+No new dependencies.
+
+No new download or progress UI. The `slippi:` protocol handler already had `SlpDownloadStatus`, the `slp-download-status` channel, and `SlpDownloadModal`. The Beamer pull emits the same statuses on the same channel into the same modal. `pullFromBeamer` takes an `onStatus` callback for exactly this reason. The status payload gained three optional fields and one new variant; the modal gained a Cancel button and a retry line.
+
+Four things change for someone who never touches a beamer:
+
+1. `downloadFile` is shared with the `slippi:` protocol handler, so that path inherits the resume, the retries, the watchdogs, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
+2. A failed protocol download now leaves a `.part` file behind. Upstream unlinked the partial file; the fork keeps it on purpose so a retry can resume, but nothing prunes `userData/protocol` the way `pruneBeamerDir` prunes the Beamer cache. TODO: fix this
+3. The modal's Cancel button shows during a protocol download and does nothing — it calls `cancelBeamerDownload`, and there is no Beamer pull to abort. TODO: fix this
+4. Two controls are always visible: the Beamer button in the app bar, and the "Beamer cache is empty" row with its disabled Clear button in Settings.
+
+No background network traffic. The mDNS browser and the 10 s fleet poll run only while the dialog is open. A TO who never opens it never sees a multicast packet.
 
 ## Reviewing this without a Beamer
 
@@ -181,7 +175,7 @@ The flags that reproduce states the app has to handle:
 
 - `--unhealthy` -> `health: "error"`, which should show the red warning icon on the row while still allowing a copy.
 - `--warn "DRIVE FILLING,NO WII"` -> `health: "warn"` with those labels, which should show the amber icon and the labels in its tooltip.
-- `--unreported` -> `503` on `GET /status`, which should show the row with an address and no details rather than an error.
+- `--unreported` -> `503` on `GET /status`, which should drop the station off the list rather than raising an error - `listedBeamerStations` only lists stations that have reported.
 - `--cap` / `--served` -> the `replay_cap` the station reports and how many replays it publishes, for the `17/512 replays` line.
 - `--post-delay` -> how long `POST /status` takes, so the refresh spinner is visible.
 

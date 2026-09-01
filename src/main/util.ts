@@ -23,17 +23,6 @@ const UNREACHABLE_CODES = new Set([
   'EAI_AGAIN',
 ]);
 const BACKOFF_MS = [1000, 2000, 4000, 4000];
-const ASSUMED_SIZE = 1.5 * 1024 * 1024;
-
-export function downloadedFraction(written: number, size: number) {
-  if (size === 0) {
-    return 1;
-  }
-  if (size > 0) {
-    return Math.min(written / size, 1);
-  }
-  return Math.min(1 - 1 / (1 + written / ASSUMED_SIZE), 0.95);
-}
 
 export class DownloadError extends Error {
   readonly retryable: boolean;

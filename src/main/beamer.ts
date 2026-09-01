@@ -3,7 +3,7 @@ import path from 'path';
 import sanitize from 'sanitize-filename';
 import { parse as parseIpaddr } from 'ipaddr.js';
 import { SlpDownloadStatus } from '../common/types';
-import { DownloadError, downloadFile, downloadedFraction } from './util';
+import { DownloadError, downloadFile } from './util';
 
 const INDEX_ATTEMPTS = 3;
 const INDEX_RETRY_MS = 1000;
@@ -178,27 +178,28 @@ export async function pullFromBeamer(
   const slpUrls = missing.map((file) => file.url);
   const failures = new Map<string, string>();
 
+  const totalBytes = missing.reduce((sum, file) => sum + file.size, 0);
+  const byBytes = missing.every((file) => file.size >= 0) && totalBytes > 0;
+  const bytesWritten = new Map<string, number>();
+
   let filesDone = 0;
   let completed = 0;
   let highWater = 0;
   let lastSentAt = 0;
 
-  const shareOf = (file: BeamerFile, written: number) =>
-    downloadedFraction(written, file.size);
-
-  const send = (
-    file: BeamerFile,
-    written: number,
-    attempt: number,
-    force = false,
-  ) => {
+  const send = (file: BeamerFile, attempt: number, force = false) => {
     const now = Date.now();
     if (!force && now - lastSentAt < STATUS_THROTTLE_MS) {
       return;
     }
     lastSentAt = now;
-    const progress =
-      ((filesDone + shareOf(file, written)) / missing.length) * 100;
+    let done = 0;
+    bytesWritten.forEach((bytes) => {
+      done += bytes;
+    });
+    const progress = byBytes
+      ? (done / totalBytes) * 100
+      : (filesDone / missing.length) * 100;
     highWater = Math.max(highWater, progress);
     onStatus({
       status: 'downloading',
@@ -215,17 +216,23 @@ export async function pullFromBeamer(
 
   const pull = async (file: BeamerFile) => {
     let attempt = 1;
-    send(file, await partSize(dest, file.name), attempt, true);
+    const started = await partSize(dest, file.name);
+    bytesWritten.set(file.name, started);
+    send(file, attempt, true);
     try {
       await downloadFile(file.url, path.join(dest, file.name), {
         expectedSize: file.size,
         signal,
-        onBytes: (written) => send(file, written, attempt),
+        onBytes: (written) => {
+          bytesWritten.set(file.name, written);
+          send(file, attempt);
+        },
         onAttempt: (n) => {
           attempt = n;
         },
       });
       failures.delete(file.name);
+      bytesWritten.set(file.name, Math.max(file.size, 0));
       completed += 1;
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
@@ -235,7 +242,7 @@ export async function pullFromBeamer(
       }
     }
     filesDone += 1;
-    send(file, 0, attempt, true);
+    send(file, attempt, true);
   };
 
   const cancelled = () => {
@@ -269,7 +276,6 @@ export async function pullFromBeamer(
     ? []
     : missing.filter((file) => failures.has(file.name));
   if (stragglers.length > 0) {
-    filesDone -= stragglers.length;
     for (let i = 0; i < stragglers.length; i += 1) {
       if (cancelled()) {
         return;

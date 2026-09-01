@@ -119,7 +119,7 @@ import {
   stopListeningAndSend,
 } from './host';
 import { assertInteger, assertString } from '../common/asserts';
-import { downloadFile, downloadedFraction, resolveHtmlPath } from './util';
+import { downloadFile, resolveHtmlPath } from './util';
 import {
   beamerDirFor,
   beamerName,
@@ -230,7 +230,6 @@ export default function setupIPCs(
   }
 
   let slpDownloadStatus: SlpDownloadStatus = { status: 'idle' };
-  const STATUS_THROTTLE_MS = 100;
 
   async function handleProtocolLoadSlpUrls(slpUrls: string[]) {
     await mkdir(protocolLoadFullPath, { recursive: true });
@@ -238,24 +237,11 @@ export default function setupIPCs(
     const total = slpUrls.length;
     let completed = 0;
 
-    const shares = new Map<string, number>();
-    let highWater = 0;
-    let lastSentAt = 0;
-    const send = (fileName: string, force = false) => {
-      const now = Date.now();
-      if (!force && now - lastSentAt < STATUS_THROTTLE_MS) {
-        return;
-      }
-      lastSentAt = now;
-      let sum = 0;
-      shares.forEach((share) => {
-        sum += share;
-      });
-      highWater = Math.max(highWater, (sum / total) * 100);
+    const send = (fileName: string) => {
       slpDownloadStatus = {
         status: 'downloading',
         slpUrls,
-        progress: highWater,
+        progress: (completed / total) * 100,
         currentFile: fileName,
         filesDone: completed,
         totalFiles: total,
@@ -265,28 +251,24 @@ export default function setupIPCs(
       }
     };
 
+    if (total > 0) {
+      send(path.basename(new URL(slpUrls[0]).pathname));
+    }
     await Promise.all(
       slpUrls.map(async (url) => {
         const fileName = path.basename(new URL(url).pathname);
         const dest = path.join(protocolLoadFullPath, fileName);
         try {
-          await downloadFile(url, dest, {
-            onBytes: (written) => {
-              shares.set(url, downloadedFraction(written, -1));
-              send(fileName);
-            },
-          });
-          shares.set(url, 1);
+          await downloadFile(url, dest);
         } catch (err) {
-          shares.set(url, 1);
           failedFiles.push(url);
         } finally {
           completed += 1;
-          send(fileName, true);
+          send(fileName);
         }
       }),
     );
-    // Emit 100% progress after last file
+
     slpDownloadStatus = {
       status: 'downloading',
       slpUrls,
