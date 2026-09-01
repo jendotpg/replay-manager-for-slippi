@@ -211,8 +211,17 @@ export async function resetBeamer(origin: string) {
   }
 
   if (response.status === 409) {
+    let reported = '';
+    try {
+      const body = await response.json();
+      reported = typeof body?.error === 'string' ? body.error : '';
+    } catch {
+      reported = '';
+    }
     throw new Error(
-      'That station is busy sending a replay, or with another action. Nothing was erased - try again in a moment.',
+      reported
+        ? `That station refused: ${reported}. Nothing was erased - try again in a moment.`
+        : 'That station is busy sending a replay, or with another action. Nothing was erased - try again in a moment.',
     );
   }
   if (response.status === 400) {
