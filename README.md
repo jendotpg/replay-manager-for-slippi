@@ -38,6 +38,7 @@ In short: TOs can use Beamers to report a set with only a station number - no ne
 {
   "schema": 1,
   "arch": "esp32", # fake for a fake, armhf for a pi zero w
+  "firmware_version": "v0.2.2",
   "station_id": "60ed5b25-5a43-5481-9d5c-abcb52dcb1f2",
   "station_name": "dev-unit-02",
   "ssid": "nycmelee",
