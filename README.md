@@ -2,21 +2,17 @@
 
 This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi).
 
-TODO:
+## TODO:
 
 1. add OTA config
 
----
-
-## 1. What a Beamer is
+## What a Beamer is
 
 A [Beamer](https://github.com/jendotpg/slippi-beamer) is a microprocessor bolted to a Wii over the USB port. The beamer presents a disk image to the Wii as an ordinary USB flash drive. Slippi Nintendont writes `.slp` files to it believing it is a stick. The Beamer then serves those same replays over the tournament WiFi (or, for bigger tournaments, over a dedicated IoT access point).
 
 In short: TOs can use beamers to report sets with only a station number - no need to send a flash drive back and forth.
 
----
-
-## 2. The network contract
+### The network contract
 
 This is the entire surface the app talks to: an mDNS advertisement and five HTTP routes.
 
@@ -87,7 +83,7 @@ Stations advertise `_beamer._tcp` on port 80.
 
 There's no authentication at all - if you can reach the beamer, you can do anything to it. This is part of why at bigger events they'll be on their own wifi.
 
-## 3. Changes to replay manager
+## Changes to replay manager
 
 ### `src/main/beamer.ts` (new) — the replay index and the local cache
 
@@ -120,7 +116,7 @@ A few notes:
 
 ### `src/main/preload.ts` — matching changes to the bridge
 
-Sixteen `invoke` wrappers, one `on` wrapper for `beamerFleet`, and two extra positional arguments on the existing `onUsb`. See section (5) for the `onUsb` issue - I have some thoughts...
+Sixteen `invoke` wrappers, one `on` wrapper for `beamerFleet`, and two extra positional arguments on the existing `onUsb`. See below for the `onUsb` issue - I have some thoughts...
 
 ### `src/renderer/BeamerDialog.tsx` (new) - dialog to manage beamer fleet
 
@@ -134,9 +130,7 @@ Sixteen `invoke` wrappers, one `on` wrapper for `beamerFleet`, and two extra pos
 
 ### `common/`- new beamer types and constant
 
----
-
-## 4. Non-changes
+## Non-changes to replay manager
 
 No new dependencies.
 
@@ -146,9 +140,7 @@ No change to behaviour when no Beamer is involved.
 
 No background network traffic. The mDNS browser and the 10 s fleet poll run only while the dialog is open. A TO who never opens it never sees a multicast packet.
 
----
-
-## 5. `usbstorage`/ `onUsb`
+## `usbstorage`/ `onUsb`
 
 `usbstorage` now carries two conceptually different things: "a USB drive was inserted" and "a Beamer was selected." They share an interface - this feels weird to me...
 
@@ -170,11 +162,9 @@ A few notes:
 
 I think this shape should probably be changed completely - but that's ... not really my call :P I can certainly split off onUsb from onBeamerSelect, but I'm not sure that really addresses the underlying issue.
 
----
+## Reviewing this without a Beamer
 
-## 6. Reviewing this without a Beamer
-
-You don't need a Pi, a Wii, or an LED. Everything the app talks to is an mDNS advertisement and five HTTP endpoints, and [the Beamer repo](https://github.com/jendotpg/slippi-beamer) ships a stand-in:
+You don't need any extra hardware. Everything the app talks to is an mDNS advertisement and five HTTP endpoints, and [the Beamer repo](https://github.com/jendotpg/slippi-beamer) ships a stand-in:
 
 ```bash
 tools/fake-beamer.py --name beamer-virtual-1 --port 8081 \
@@ -182,7 +172,7 @@ tools/fake-beamer.py --name beamer-virtual-1 --port 8081 \
   --station-name "Fake 1"
 ```
 
-Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine. The duplicate-name case can't be faked on my Mac: Bonjour renames the duplicate automatically.
+Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine. Biggest exception: the duplicate-name case can't be faked on my Mac since Bonjour renames the duplicate automatically. Maybe you can get away with it on another platform or by forcing it in a way I didn't try (I didn't try very hard :P )
 
 The game payload isn't canned: `--game` is peeked out of a real `.slp` by a port of the station's own `beamer::slp` carried inside the script. So the character icons in the fleet list are a real test.
 
