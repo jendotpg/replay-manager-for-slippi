@@ -99,7 +99,7 @@ A few notes on why I really don't like the current shape:
 I think this shape should probably be changed completely but I don't want to do a big refactor that's going to need to be undone if this ever goes upstream. I see three options (I personally prefer the 2nd):
 
 1. Keep the shape in this fork right now (`onUsb`controlling replay directory for Beamers + deep links + usb mounting, minimal refactoring of upstream)
-2. Refactor `usbstorage` into separate`replaydir` and `usbstorage` channels - downloads (like Beamer pulls and deep links) can send `replaydir` directly and the renderer thread can handle the much simpler `onUsb` and `onReplayDir` more cleanly. This
+2. Refactor `usbstorage` into separate`replaydir` and `usbstorage` channels - downloads (like Beamer pulls and deep links) can send `replaydir` directly and the renderer thread can handle the much simpler `onUsb` and `onReplayDir` more cleanly.
 3. Keep `usbstorage` as is, add a `beamer` channel that ONLY works for Beamers and update Beamer state on `onBeamer` while leaving deep links alone. This is the cleanest design without any upstream refactoring but leaves the existing overload alone without piling onto it - feels very weird to me....
 
 ## Changes to replay manager
