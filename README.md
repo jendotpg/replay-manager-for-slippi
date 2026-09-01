@@ -4,7 +4,8 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 ## TODO:
 
-1. add OTA config
+1. fix progress bar - we know the full amount to be downloaded! do progresss against that, not per file...
+2. update this document :)
 
 ## What a Beamer is
 

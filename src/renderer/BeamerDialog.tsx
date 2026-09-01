@@ -287,11 +287,11 @@ export default function BeamerDialog({
     setError('');
     try {
       await window.electron.resetBeamerStation(station.address);
-      setConfirmingReset(null);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
       setResetting('');
+      setConfirmingReset(null);
     }
   };
 
@@ -300,15 +300,14 @@ export default function BeamerDialog({
     setError('');
     try {
       const failures = await window.electron.resetAllBeamerStations();
-      if (failures.length === 0) {
-        setConfirmingReset(null);
-        return;
+      if (failures.length > 0) {
+        setError(`Erased the rest, but not these:\n${failures.join('\n')}`);
       }
-      setError(`Erased the rest, but not these:\n${failures.join('\n')}`);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
       setResetting('');
+      setConfirmingReset(null);
     }
   };
 
