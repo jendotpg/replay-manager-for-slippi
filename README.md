@@ -96,7 +96,7 @@ A few notes on why I really don't like the current shape:
 - The name no longer describes any of its meanings, including the original one after eject re-announces a non-USB directory.
 - Some `usbstorage` sets go through `addReplayDir` and others don't - and some don't even go through the `onUsb` channel at all. `chooseReplaysDir`and the undo path set`dir`/`isUsb`/`beamerOrigin` locally from a return value and never touch the channe .
 
-I think this shape should probably be changed completely but I don't want to do a big refactor that's going to need to be undone if this ever goes upstream - and I'd be messing pretty . I see three options (I personally prefer the 2nd):
+I think this shape should probably be changed completely but I don't want to do a big refactor that's going to need to be undone if this ever goes upstream. I see three options (I personally prefer the 2nd):
 
 1. Keep the shape in this fork right now (`onUsb`controlling replay directory for Beamers + deep links + usb mounting, minimal refactoring of upstream)
 2. Refactor `usbstorage` into separate`replaydir` and `usbstorage` channels - downloads (like Beamer pulls and deep links) can send `replaydir` directly and the renderer thread can handle the much simpler `onUsb` and `onReplayDir` more cleanly. This
