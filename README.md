@@ -79,25 +79,28 @@ There's no authentication at all - if you can reach the beamer, you can do anyth
 
 ## `usbstorage`/ `onUsb`
 
-`usbstorage` now carries two conceptually different things: "a USB drive was inserted" and "a Beamer was selected." They share an interface - this feels weird to me...
+In this fork`onUsb`(triggered by `usbstorage`) carries three conceptually different things: "a USB drive state was updated", "a replay directory was downloaded through a deep-link", and "a Beamer cache was updated." All three share (approximately) a graphical interface - but this still feels weird to me...
 
-It was already overloaded before I touched it. Upstream at `2.5.1`, `usbstorage` had three producers:
+It was already overloaded before I touched it. Upstream at 2.5.1, `usbstorage` had two producers:
 
-1. `detect-usb` insert -> `addReplayDir(dir, key)`.
-2. `detect-usb` eject -> re-announce whatever directory is now top of stack (possibly `''`).
-3. `handleProtocolLoadSlpUrls` finishing a `replay-manager:` download -> `addReplayDir(protocolLoadFullPath, '')` — not a USB event, with `isUsb` false.
+1. `detect-usb` insert/eject -> `addReplayDir(dir, key)` on insert and raw `usbstorage` send on eject
+2. `handleProtocolLoadSlpUrls` download -> `addReplayDir(protocolLoadFullPath, '')`
 
 It seems like this channel is really meant to control "what displays in the top-left corner showing replay origin" and not per se usbs.
 
-In this fork, the payload went from `(dir, isUsb)` to `(dir, isUsb, beamerOrigin, beamerName)`, and there are now five producers: insert, eject, protocol load, `copyFromBeamer` completing, and `clearBeamerCache` falling back. (Three of those share the one `addReplayDir` send site, so the same line of code means different things depending only on who called it.) Plus a sixth that isn't a source change at all — the cache pruner re-sends the _unchanged_ current directory purely to make the renderer re-read the folder.
+In this fork, the payload went from `(dir, isUsb)` to `(dir, isUsb, beamerOrigin, beamerName)`, and there are now six producers: usb eject, cache clearing, cache pruning, usb insert, protocol load, and `copyFromBeamer`. The latter three are routed through `addReplayDir`.
 
-A few notes:
+A few notes on why I really don't like the current shape:
 
-1. The payload is a tagged union pretending to be positional arguments. Four positions today; a fifth source means a fifth argument, and every consumer has to know which combinations are legal (`isUsb` true _and_ `beamerOrigin` set is meaningless, but nothing says so).
-2. The name no longer describes any of its meanings, including the original one after eject re-announces a non-USB directory.
-3. There are two ways into the same renderer state. `chooseReplaysDir` and the undo path set `dir` / `isUsb` / `beamerOrigin` locally from a return value and never touch the channel. Adding Beamer fields doubled what those sites have to remember to clear (ew)
+- The payload is a tagged union pretending to be positional arguments. Every consumer has to know which combinations are legal (`isUsb` true _and_ `beamerOrigin` set is meaningless, but nothing says so).
+- The name no longer describes any of its meanings, including the original one after eject re-announces a non-USB directory.
+- Some `usbstorage` sets go through `addReplayDir` and others don't - and some don't even go through the `onUsb` channel at all. `chooseReplaysDir`and the undo path set`dir`/`isUsb`/`beamerOrigin` locally from a return value and never touch the channe .
 
-I think this shape should probably be changed completely (separating out `onUsb` vs `onReplayDir` or some other spelling ) - but that's ... not really my call :P. I can certainly split off just `onBeamerSelect` and just leave the admittedly much smaller `handleProtocolLoadSlpUrls`overload.
+I think this shape should probably be changed completely but I don't want to do a big refactor that's going to need to be undone if this ever goes upstream - and I'd be messing pretty . I see three options (I personally prefer the 2nd):
+
+1. Keep the shape in this fork right now (`onUsb`controlling replay directory for Beamers + deep links + usb mounting, minimal refactoring of upstream)
+2. Refactor `usbstorage` into separate`replaydir` and `usbstorage` channels - downloads (like Beamer pulls and deep links) can send `replaydir` directly and the renderer thread can handle the much simpler `onUsb` and `onReplayDir` more cleanly. This
+3. Keep `usbstorage` as is, add a `beamer` channel that ONLY works for Beamers and update Beamer state on `onBeamer` while leaving deep links alone. This is the cleanest design without any upstream refactoring but leaves the existing overload alone without piling onto it - feels very weird to me....
 
 ## Changes to replay manager
 
