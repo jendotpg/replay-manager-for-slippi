@@ -4,14 +4,13 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-1. add a refresh all button
-2. add "only pull last X replays" in fleet view, "pull next replay" button on top of view
+1. add OTA config
 
 ---
 
 ## 1. What a Beamer is
 
-A [Beamer](https://github.com/jendotpg/slippi-beamer) is a microprocessor bolted to a Wii. The beamer presents a disk image to the Wii as an ordinary USB flash drive. Slippi Nintendont writes `.slp` files to it believing it is a stick. The Beamer then serves those same replays over the tournament WiFi (or, for bigger tournaments, over a dedicated IoT access point).
+A [Beamer](https://github.com/jendotpg/slippi-beamer) is a microprocessor bolted to a Wii over the USB port. The beamer presents a disk image to the Wii as an ordinary USB flash drive. Slippi Nintendont writes `.slp` files to it believing it is a stick. The Beamer then serves those same replays over the tournament WiFi (or, for bigger tournaments, over a dedicated IoT access point).
 
 In short: TOs can use beamers to report sets with only a station number - no need to send a flash drive back and forth.
 
@@ -88,13 +87,6 @@ Stations advertise `_beamer._tcp` on port 80.
 
 There's no authentication at all - if you can reach the beamer, you can do anything to it. This is part of why at bigger events they'll be on their own wifi.
 
-Because replay manager cannot trust beamers, it validates everything they send:
-
-- Index entries are re-derived, not trusted (`beamer.ts`): the URL is resolved against the station's own origin and has to still start with `<origin>/SLIPPI/`, and the filename is then `path.basename` of that URL's path - the station doesn't get to name a file at all. Non-`.slp` and dotfiles are dropped.
-- `/status` bodies are size-capped (`MAX_STATUS_BYTES`) and every field is coerced before it reaches React: `asString`, `Number.isInteger`, `health` matched against the four known values (anything else becomes the app's own `unknown`), and `warnings` filtered down to non-empty strings.
-- Every `fetch` has an explicit timeout. None of them can hang the main process.
-- The per-station cache directory name goes through `sanitize-filename`.
-
 ## 3. Changes to replay manager
 
 ### `src/main/beamer.ts` (new) — the replay index and the local cache
@@ -118,20 +110,21 @@ type ReplayDir = {
 };
 ```
 
-Ten new `invoke` handlers (`copyFromBeamer`, `refreshFromBeamer`, `startBeamerBrowse` / `stopBeamerBrowse`, `getBeamerFleet`, `refreshBeamerStatus`, `resetBeamerStation`, `resetAllBeamerStations`, `getBeamerAddress`, `getBeamerCacheSize`, `clearBeamerCache`) and one new push channel, `beamerFleet`.
+Sixteen new `invoke` handlers (`copyFromBeamer`, `refreshFromBeamer`, `cancelBeamerDownload`, `getNextBeamerReplay`, `downloadNextBeamerReplay`, `getMaxGamesFromIndex` / `setMaxGamesFromIndex`, `startBeamerBrowse` / `stopBeamerBrowse`, `getBeamerFleet`, `refreshBeamerStatus`, `refreshAllBeamerStations`, `resetBeamerStation`, `resetAllBeamerStations`, `getBeamerCacheSize`, `clearBeamerCache`) and one new push channel, `beamerFleet`.
 
 A few notes:
 
-- **The fleet poll is forgiving.** A failed `/status` poll does not remove a station from the list — only mDNS `serviceLost` does.
-- **The fleet is keyed by address, not by station name.** Nothing stops two stations from advertising the same instance name.
-- **The local cache is matched exactly to the beamer.** Each poll compares the local cache to the station's index and unlinks anything the station no longer has, so the local view follows a station whose replay window has rolled forward. If a station won't hand over its index, the cache is left alone.
-- **`refreshFromBeamer` takes the origin explicitly.** This prevents a race condition on USB insert between render and click. Shoutout Claude - I never would have found this myself LMFAO
+- The fleet poll is forgiving. A failed `/status` poll does not remove a station from the list — only mDNS `serviceLost` does.
+- The fleet is keyed by address, not by station name. Nothing stops two stations from advertising the same instance name.
+- Pulling .slps from the Beamer index is windowed. `maxGamesFromIndex` caps how many of the newest index entries `copyFromBeamer` and `refreshFromBeamer` pass to `pullFromBeamer`. `pruneBeamerCacheFor` still passes the full index to `pruneBeamerDir`, so a replay that fell outside the download window is still shown if it was previously cached (or downloaded row-by-row).
 
 ### `src/main/preload.ts` — matching changes to the bridge
 
-Ten `invoke` wrappers, one `on` wrapper for `beamerFleet`, and two extra positional arguments on the existing `onUsb`. See section (5) for the `onUsb` issue - I have some thoughts.
+Sixteen `invoke` wrappers, one `on` wrapper for `beamerFleet`, and two extra positional arguments on the existing `onUsb`. See section (5) for the `onUsb` issue - I have some thoughts...
 
 ### `src/renderer/BeamerDialog.tsx` (new) - dialog to manage beamer fleet
+
+### `src/renderer/ReplayList.tsx` - the "Download next replay" row
 
 ### `src/renderer/App.tsx`- add beamer button and show source field for beamers
 
@@ -145,13 +138,13 @@ Ten `invoke` wrappers, one `on` wrapper for `beamerFleet`, and two extra positio
 
 ## 4. Non-changes
 
-**No new dependencies.**
+No new dependencies.
 
-**No new download or progress UI.** The `slippi:` protocol handler already had `SlpDownloadStatus`, the `slp-download-status` channel, and `SlpDownloadModal`. The Beamer pull emits the same statuses on the same channel into the same modal. `pullFromBeamer` takes an `onStatus` callback for exactly this reason.
+No new download or progress UI. The `slippi:` protocol handler already had `SlpDownloadStatus`, the `slp-download-status` channel, and `SlpDownloadModal`. The Beamer pull emits the same statuses on the same channel into the same modal. `pullFromBeamer` takes an `onStatus` callback for exactly this reason.
 
-**No change to behaviour when no Beamer is involved.**
+No change to behaviour when no Beamer is involved.
 
-**No background network traffic.** The mDNS browser and the 10 s fleet poll run only while the dialog is open. A TO who never opens it never sees a multicast packet.
+No background network traffic. The mDNS browser and the 10 s fleet poll run only while the dialog is open. A TO who never opens it never sees a multicast packet.
 
 ---
 
@@ -163,7 +156,7 @@ However, it was already overloaded before I touched it. At `HEAD~1`, `usbstorage
 
 1. `detect-usb` insert -> `addReplayDir(dir, key)`.
 2. `detect-usb` eject -> re-announce whatever directory is now top of stack (possibly `''`).
-3. `handleProtocolLoadSlpUrls` finishing a `slippi:` download -> `addReplayDir(protocolLoadFullPath, '')` — **not a USB event**, with `isUsb` false.
+3. `handleProtocolLoadSlpUrls` finishing a `slippi:` download -> `addReplayDir(protocolLoadFullPath, '')` — not a USB event, with `isUsb` false.
 
 It seems like this channel is really meant to control "what displays in the top-left corner showing replay origin" and not per se usbs.
 
@@ -171,9 +164,9 @@ In this fork, the payload went from `(dir, isUsb)` to `(dir, isUsb, beamerOrigin
 
 A few notes:
 
-1. **The payload is a tagged union pretending to be positional arguments.** Four positions today; a fifth source means a fifth argument, and every consumer has to know which combinations are legal (`isUsb` true _and_ `beamerOrigin` set is meaningless, but nothing says so).
-2. **The name no longer describes any of its meanings**, including the original one after eject re-announces a non-USB directory.
-3. **There are two ways into the same renderer state.** `chooseReplaysDir` and the undo path set `dir` / `isUsb` / `beamerOrigin` locally from a return value and never touch the channel. Adding Beamer fields doubled what those sites have to remember to clear (ew)
+1. The payload is a tagged union pretending to be positional arguments. Four positions today; a fifth source means a fifth argument, and every consumer has to know which combinations are legal (`isUsb` true _and_ `beamerOrigin` set is meaningless, but nothing says so).
+2. The name no longer describes any of its meanings, including the original one after eject re-announces a non-USB directory.
+3. There are two ways into the same renderer state. `chooseReplaysDir` and the undo path set `dir` / `isUsb` / `beamerOrigin` locally from a return value and never touch the channel. Adding Beamer fields doubled what those sites have to remember to clear (ew)
 
 I think this shape should probably be changed completely - but that's ... not really my call :P I can certainly split off onUsb from onBeamerSelect, but I'm not sure that really addresses the underlying issue.
 

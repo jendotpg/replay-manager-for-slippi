@@ -275,6 +275,8 @@ function Hello() {
   const [isUsb, setIsUsb] = useState(false);
   const [beamerOrigin, setBeamerOrigin] = useState('');
   const [beamerName, setBeamerName] = useState('');
+  const [beamerNextReplay, setBeamerNextReplay] = useState('');
+  const [downloadingNextReplay, setDownloadingNextReplay] = useState(false);
   const [beamerDialogOpen, setBeamerDialogOpen] = useState(false);
   const [copyDir, setCopyDir] = useState('');
   const [host, setHost] = useState<CopyHostOrClient>({
@@ -807,6 +809,40 @@ function Hello() {
     },
     [guideActive, mode, vlerkMode],
   );
+
+  useEffect(() => {
+    if (!beamerOrigin) {
+      setBeamerNextReplay('');
+      return undefined;
+    }
+
+    let current = true;
+    (async () => {
+      const next = await window.electron.getNextBeamerReplay(beamerOrigin);
+      if (current) {
+        setBeamerNextReplay(next);
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [beamerOrigin, replays]);
+
+  const downloadNextReplay = async () => {
+    if (!beamerOrigin) {
+      return;
+    }
+
+    setDownloadingNextReplay(true);
+    try {
+      await window.electron.downloadNextBeamerReplay(beamerOrigin);
+      await refreshReplays();
+    } catch (e: any) {
+      showErrorDialog([e instanceof Error ? e.message : e]);
+    } finally {
+      setDownloadingNextReplay(false);
+    }
+  };
 
   const wouldDeleteCopyDir =
     dir.length > 0 && copyDir.length > 0 && dir === copyDir;
@@ -2454,6 +2490,9 @@ function Hello() {
               <>
                 <ReplayList
                   dirInit={dirInit}
+                  nextReplayName={beamerNextReplay}
+                  downloadingNextReplay={downloadingNextReplay}
+                  onDownloadNext={downloadNextReplay}
                   numAvailablePlayers={availablePlayers.length}
                   replays={replays}
                   replayRefs={replayRefs}

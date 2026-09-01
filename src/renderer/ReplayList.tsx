@@ -4,6 +4,7 @@ import {
   Box,
   Checkbox,
   Chip,
+  CircularProgress,
   createTheme,
   IconButton,
   List,
@@ -11,8 +12,10 @@ import {
   Stack,
   ThemeProvider,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import {
+  Add,
   EmojiEventsOutlined,
   EmojiEvents,
   HideSource,
@@ -506,6 +509,9 @@ const ReplayListItem = forwardRef(
 
 export default function ReplayList({
   dirInit,
+  nextReplayName,
+  downloadingNextReplay,
+  onDownloadNext,
   numAvailablePlayers,
   replays,
   replayRefs,
@@ -519,6 +525,9 @@ export default function ReplayList({
   elevateNames,
 }: {
   dirInit: boolean;
+  nextReplayName: string;
+  downloadingNextReplay: boolean;
+  onDownloadNext: () => void;
   numAvailablePlayers: number;
   replays: Replay[];
   replayRefs: RefObject<HTMLDivElement>[];
@@ -539,6 +548,31 @@ export default function ReplayList({
         zIndex: (theme) => (elevate ? theme.zIndex.drawer + 2 : undefined),
       }}
     >
+      {nextReplayName && (
+        <Tooltip arrow placement="right" title={nextReplayName}>
+          <ListItemButton
+            disabled={downloadingNextReplay}
+            disableGutters
+            onClick={onDownloadNext}
+          >
+            <Box
+              alignItems="center"
+              color="text.secondary"
+              display="flex"
+              flexGrow={1}
+              gap="8px"
+              justifyContent="center"
+            >
+              {downloadingNextReplay ? (
+                <CircularProgress size="20px" />
+              ) : (
+                <Add fontSize="small" />
+              )}
+              <Typography variant="body2">Download next replay</Typography>
+            </Box>
+          </ListItemButton>
+        </Tooltip>
+      )}
       {replays.length === 0 ? (
         <Alert severity="warning" sx={{ mb: '8px', mt: '8px', pl: '10px' }}>
           {dirInit ? 'Click refresh replays!' : 'No replays in folder.'}

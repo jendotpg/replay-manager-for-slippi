@@ -133,6 +133,23 @@ export function beamerDirFor(
   return path.join(cacheRoot, sanitize(name) || 'beamer');
 }
 
+async function hasCompleteFile(dest: string, file: BeamerFile) {
+  try {
+    const stats = await stat(path.join(dest, file.name));
+    return stats.isFile() && (file.size < 0 || stats.size === file.size);
+  } catch {
+    return false;
+  }
+}
+
+export async function firstMissingFile(dest: string, files: BeamerFile[]) {
+  const present = await Promise.all(
+    files.map((file) => hasCompleteFile(dest, file)),
+  );
+  const i = present.findIndex((have) => !have);
+  return i >= 0 ? files[i] : null;
+}
+
 async function partSize(dest: string, name: string) {
   try {
     return (await stat(path.join(dest, `${name}.part`))).size;
@@ -150,14 +167,7 @@ export async function pullFromBeamer(
   await mkdir(dest, { recursive: true });
 
   const present = await Promise.all(
-    files.map(async (file) => {
-      try {
-        const stats = await stat(path.join(dest, file.name));
-        return stats.isFile() && (file.size < 0 || stats.size === file.size);
-      } catch {
-        return false;
-      }
-    }),
+    files.map((file) => hasCompleteFile(dest, file)),
   );
   const missing = files.filter((file, i) => !present[i]);
   if (missing.length === 0) {

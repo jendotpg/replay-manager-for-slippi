@@ -124,6 +124,7 @@ import {
   beamerDirFor,
   beamerName,
   clearBeamerCache,
+  firstMissingFile,
   getBeamerCacheSize,
   getBeamerIndex,
   listCachedReplays,
@@ -416,6 +417,24 @@ export default function setupIPCs(
     return chosenReplaysDir;
   });
 
+  const MAX_GAMES_FROM_INDEX_CEILING = 16;
+  let maxGamesFromIndex = store.get('maxGamesFromIndex', 4);
+  ipcMain.removeHandler('getMaxGamesFromIndex');
+  ipcMain.handle('getMaxGamesFromIndex', () => maxGamesFromIndex);
+
+  ipcMain.removeHandler('setMaxGamesFromIndex');
+  ipcMain.handle(
+    'setMaxGamesFromIndex',
+    (event, newMaxGamesFromIndex: number) => {
+      maxGamesFromIndex = Math.min(
+        Math.max(assertInteger(newMaxGamesFromIndex), 1),
+        MAX_GAMES_FROM_INDEX_CEILING,
+      );
+      store.set('maxGamesFromIndex', maxGamesFromIndex);
+      return maxGamesFromIndex;
+    },
+  );
+
   const sendBeamerDownloadStatus = (status: SlpDownloadStatus) => {
     slpDownloadStatus = status;
     mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
@@ -557,7 +576,12 @@ export default function setupIPCs(
     const signal = startBeamerPull();
     (async () => {
       try {
-        await pullFromBeamer(dest, files, sendBeamerDownloadStatus, signal);
+        await pullFromBeamer(
+          dest,
+          files.slice(0, maxGamesFromIndex),
+          sendBeamerDownloadStatus,
+          signal,
+        );
       } finally {
         beamerPull = null;
       }
@@ -591,10 +615,53 @@ export default function setupIPCs(
     try {
       await pullFromBeamer(
         current.dir,
-        files,
+        files.slice(0, maxGamesFromIndex),
         sendBeamerDownloadStatus,
         signal,
       );
+    } finally {
+      beamerPull = null;
+    }
+  });
+
+  const beamerDirForOrigin = (origin: string) => {
+    const current = replayDirs.find(
+      ({ beamerOrigin }) => beamerOrigin === origin,
+    );
+    if (!current) {
+      throw new Error('Those replays are no longer loaded from a Beamer.');
+    }
+    return current.dir;
+  };
+
+  ipcMain.removeHandler('getNextBeamerReplay');
+  ipcMain.handle('getNextBeamerReplay', async (event, origin: string) => {
+    let dir;
+    try {
+      dir = beamerDirForOrigin(origin);
+    } catch {
+      return '';
+    }
+    try {
+      const { files } = await getBeamerIndex(origin);
+      return (await firstMissingFile(dir, files))?.name ?? '';
+    } catch {
+      return '';
+    }
+  });
+
+  ipcMain.removeHandler('downloadNextBeamerReplay');
+  ipcMain.handle('downloadNextBeamerReplay', async (event, origin: string) => {
+    const dir = beamerDirForOrigin(origin);
+    const { files } = await getBeamerIndex(origin);
+    const next = await firstMissingFile(dir, files);
+    if (!next) {
+      return;
+    }
+
+    const signal = startBeamerPull();
+    try {
+      await pullFromBeamer(dir, [next], sendBeamerDownloadStatus, signal);
     } finally {
       beamerPull = null;
     }
@@ -704,6 +771,40 @@ export default function setupIPCs(
       true,
     );
     sendBeamerFleet();
+  });
+
+  ipcMain.removeHandler('refreshAllBeamerStations');
+  ipcMain.handle('refreshAllBeamerStations', async (): Promise<string[]> => {
+    const targets = listedBeamerStations();
+    if (targets.length === 0) {
+      throw new Error('No stations are advertising themselves.');
+    }
+
+    const results = await Promise.allSettled(
+      targets.map((station) =>
+        refreshBeamerStation(
+          { address: station.address, host: station.host },
+          true,
+        ),
+      ),
+    );
+
+    const failures: string[] = [];
+    results.forEach((result, i) => {
+      if (result.status === 'rejected') {
+        const station = targets[i];
+        const label =
+          station.stationName || station.stationId || station.address;
+        const reason =
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason);
+        failures.push(`${label}: ${reason}`);
+      }
+    });
+
+    sendBeamerFleet();
+    return failures;
   });
 
   ipcMain.removeHandler('resetBeamerStation');

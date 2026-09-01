@@ -16,6 +16,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -111,6 +112,8 @@ const LIVE_DOT = {
   down: { color: '#f04438', title: 'ERROR' },
 };
 
+const MAX_GAMES_FROM_INDEX = 16; // NUM-REPLAYS-SERVED ceiling
+
 const DOWN_WARNINGS = ['DRIVE FULL', 'NO WII']; // udate if more "can't write" warnings are added...
 
 function LiveDot({ station }: { station: BeamerStation }) {
@@ -201,6 +204,7 @@ export default function BeamerDialog({
   const [resetting, setResetting] = useState('');
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  const [maxGamesFromIndex, setMaxGamesFromIndex] = useState(4);
 
   const baselines = useRef(new Map<string, { secs: number; at: number }>());
   const liveSecs = (key: string, reported: number | null) => {
@@ -230,6 +234,7 @@ export default function BeamerDialog({
 
     setError('');
     (async () => {
+      setMaxGamesFromIndex(await window.electron.getMaxGamesFromIndex());
       setFleet(await window.electron.getBeamerFleet());
       await window.electron.startBeamerBrowse();
     })();
@@ -255,6 +260,21 @@ export default function BeamerDialog({
     setError('');
     try {
       await window.electron.refreshBeamerStatus(address);
+    } catch (e: any) {
+      setError(e instanceof Error ? e.message : e);
+    } finally {
+      setRefreshing('');
+    }
+  };
+
+  const refreshAll = async () => {
+    setRefreshing('all');
+    setError('');
+    try {
+      const failures = await window.electron.refreshAllBeamerStations();
+      if (failures.length > 0) {
+        setError(`Refreshed the rest, but not these:\n${failures.join('\n')}`);
+      }
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
@@ -327,6 +347,33 @@ export default function BeamerDialog({
         >
           <Stack alignItems="center" direction="row" gap="8px">
             Beamers
+            <Stack alignItems="baseline" direction="row" gap="4px">
+              <TextField
+                inputProps={{
+                  min: 1,
+                  max: MAX_GAMES_FROM_INDEX,
+                  style: { textAlign: 'right' },
+                }}
+                onChange={async (event) => {
+                  const parsed = parseInt(event.target.value, 10);
+                  if (!Number.isInteger(parsed)) {
+                    return;
+                  }
+                  const clamped = Math.min(
+                    Math.max(parsed, 1),
+                    MAX_GAMES_FROM_INDEX,
+                  );
+                  setMaxGamesFromIndex(clamped);
+                  await window.electron.setMaxGamesFromIndex(clamped);
+                }}
+                size="small"
+                style={{ width: '40px' }}
+                type="number"
+                value={maxGamesFromIndex}
+                variant="standard"
+              />
+              <Typography variant="body2">games downloaded</Typography>
+            </Stack>
             {erroring.length > 0 && (
               <Tooltip
                 arrow
@@ -361,22 +408,42 @@ export default function BeamerDialog({
             )}
           </Stack>
           {fleet.stations.length > 0 && (
-            <Tooltip
-              arrow
-              title="Erase the replays on every station listed here"
-            >
-              <span>
-                <Button
-                  color="error"
-                  disabled={busy || Boolean(resetting)}
-                  onClick={() => setConfirmingReset('all')}
-                  size="small"
-                  startIcon={<DeleteForever />}
-                >
-                  Erase all
-                </Button>
-              </span>
-            </Tooltip>
+            <Stack alignItems="center" direction="row" gap="4px">
+              <Tooltip
+                arrow
+                title="Re-run the status check on every station listed here"
+              >
+                <span>
+                  <IconButton
+                    disabled={busy || Boolean(refreshing) || Boolean(resetting)}
+                    onClick={refreshAll}
+                    size="small"
+                  >
+                    {refreshing === 'all' ? (
+                      <CircularProgress size="20px" />
+                    ) : (
+                      <Refresh />
+                    )}
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip
+                arrow
+                title="Erase the replays on every station listed here"
+              >
+                <span>
+                  <Button
+                    color="error"
+                    disabled={busy || Boolean(resetting)}
+                    onClick={() => setConfirmingReset('all')}
+                    size="small"
+                    startIcon={<DeleteForever />}
+                  >
+                    Erase all
+                  </Button>
+                </span>
+              </Tooltip>
+            </Stack>
           )}
         </Stack>
       </DialogTitle>

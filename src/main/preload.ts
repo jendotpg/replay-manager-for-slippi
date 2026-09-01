@@ -51,6 +51,14 @@ const electronHandler = {
     ipcRenderer.invoke('refreshFromBeamer', origin),
   cancelBeamerDownload: (): Promise<void> =>
     ipcRenderer.invoke('cancelBeamerDownload'),
+  getMaxGamesFromIndex: (): Promise<number> =>
+    ipcRenderer.invoke('getMaxGamesFromIndex'),
+  setMaxGamesFromIndex: (maxGamesFromIndex: number): Promise<number> =>
+    ipcRenderer.invoke('setMaxGamesFromIndex', maxGamesFromIndex),
+  getNextBeamerReplay: (origin: string): Promise<string> =>
+    ipcRenderer.invoke('getNextBeamerReplay', origin),
+  downloadNextBeamerReplay: (origin: string): Promise<void> =>
+    ipcRenderer.invoke('downloadNextBeamerReplay', origin),
   getTrashDir: (): Promise<string> => ipcRenderer.invoke('getTrashDir'),
   chooseTrashDir: (): Promise<string> => ipcRenderer.invoke('chooseTrashDir'),
   clearTrashDir: (): Promise<void> => ipcRenderer.invoke('clearTrashDir'),
@@ -66,6 +74,8 @@ const electronHandler = {
     ipcRenderer.invoke('refreshBeamerStatus', address),
   resetBeamerStation: (address: string): Promise<void> =>
     ipcRenderer.invoke('resetBeamerStation', address),
+  refreshAllBeamerStations: (): Promise<string[]> =>
+    ipcRenderer.invoke('refreshAllBeamerStations'),
   resetAllBeamerStations: (): Promise<string[]> =>
     ipcRenderer.invoke('resetAllBeamerStations'),
   deleteReplaysDir: (usedFilenames: string[]): Promise<boolean> =>
