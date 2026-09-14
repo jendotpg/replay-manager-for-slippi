@@ -246,7 +246,7 @@ export default function BeamerDialog({
     setCopying(address);
     setError('');
     try {
-      await window.electron.copyFromBeamer(address);
+      await window.electron.selectBeamer(address);
       onClose();
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);

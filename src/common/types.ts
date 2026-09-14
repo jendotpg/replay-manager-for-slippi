@@ -587,6 +587,8 @@ export type OfflineModeStatus = {
   error: string;
 };
 
+export type DirType = 'local' | 'usb' | 'beamer' | 'deeplink';
+
 export type BeamerPort = {
   port: number;
   charId: number | null;

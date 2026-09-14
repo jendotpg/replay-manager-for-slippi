@@ -30,6 +30,7 @@ import {
   StartggGame,
   BeamerEvent,
   BeamerFleet,
+  DirType,
 } from '../common/types';
 
 const electronHandler = {
@@ -46,20 +47,20 @@ const electronHandler = {
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
     ipcRenderer.invoke('chooseReplaysDir'),
-  copyFromBeamer: (addressOrHost: string): Promise<string> =>
-    ipcRenderer.invoke('copyFromBeamer', addressOrHost),
-  refreshFromBeamer: (origin: string): Promise<void> =>
-    ipcRenderer.invoke('refreshFromBeamer', origin),
+  selectBeamer: (addressOrHost: string): Promise<string> =>
+    ipcRenderer.invoke('selectBeamer', addressOrHost),
+  refreshFromBeamer: (beamerId: string): Promise<void> =>
+    ipcRenderer.invoke('refreshFromBeamer', beamerId),
   cancelSlpDownload: (): Promise<void> =>
     ipcRenderer.invoke('cancelSlpDownload'),
   getMaxGamesFromIndex: (): Promise<number> =>
     ipcRenderer.invoke('getMaxGamesFromIndex'),
   setMaxGamesFromIndex: (maxGamesFromIndex: number): Promise<number> =>
     ipcRenderer.invoke('setMaxGamesFromIndex', maxGamesFromIndex),
-  getNextBeamerReplay: (origin: string): Promise<string> =>
-    ipcRenderer.invoke('getNextBeamerReplay', origin),
-  downloadNextBeamerReplay: (origin: string): Promise<void> =>
-    ipcRenderer.invoke('downloadNextBeamerReplay', origin),
+  getNextBeamerReplay: (beamerId: string): Promise<string> =>
+    ipcRenderer.invoke('getNextBeamerReplay', beamerId),
+  downloadNextBeamerReplay: (beamerId: string): Promise<void> =>
+    ipcRenderer.invoke('downloadNextBeamerReplay', beamerId),
   getTrashDir: (): Promise<string> => ipcRenderer.invoke('getTrashDir'),
   chooseTrashDir: (): Promise<string> => ipcRenderer.invoke('chooseTrashDir'),
   clearTrashDir: (): Promise<void> => ipcRenderer.invoke('clearTrashDir'),
@@ -87,11 +88,11 @@ const electronHandler = {
   ): Promise<void> =>
     ipcRenderer.invoke('deleteSelectedReplays', replayPaths, used),
   maybeEject: (): Promise<boolean> => ipcRenderer.invoke('maybeEject'),
-  getReplaysInDir: (): Promise<{
+  getCurrentReplays: (): Promise<{
     replays: Replay[];
     invalidReplays: InvalidReplay[];
     replayLoadCount: number;
-  }> => ipcRenderer.invoke('getReplaysInDir'),
+  }> => ipcRenderer.invoke('getCurrentReplays'),
   writeReplays: (
     fileNames: string[],
     output: Output,
@@ -389,17 +390,16 @@ const electronHandler = {
     ipcRenderer.on('tournament', callback);
     ipcRenderer.invoke('setSelectedSetId', selectedSetId);
   },
-  onUsb: (
+  onReplayDir: (
     callback: (
       event: IpcRendererEvent,
-      newDir: string,
-      newIsUsb: boolean,
-      newBeamerOrigin: string,
-      newBeamerName: string,
+      display: string,
+      dirType: DirType,
+      beamerId: string,
     ) => void,
   ) => {
-    ipcRenderer.removeAllListeners('usbstorage');
-    ipcRenderer.on('usbstorage', callback);
+    ipcRenderer.removeAllListeners('replaydir');
+    ipcRenderer.on('replaydir', callback);
   },
   onBeamerFleet: (
     callback: (event: IpcRendererEvent, fleet: BeamerFleet) => void,

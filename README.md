@@ -4,8 +4,6 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-- catch up to main
-- update "network model" for new multicast subscription
 - update downloads
 
   - make downloads respect `Retry-After`
@@ -16,6 +14,11 @@ TODO:
   - in fleet view, subscribe button on the left of each beamer replacing the current "error"/"warning" sign. just make the light cover that (red/amber/green, lit for live). auto-subscribe when a beamer is selected if the settings say so!
   - settings option for "beamer auto-subscribe" - sometimes useful, sometimes not!
   - update "non-changes to replay manager" section - now there Are background downloads...
+
+- clean this whole thing up :3
+
+  - code cleanliness
+  - stop wrapping beamer names
 
 - actually use this in tournament a few times:
 
@@ -140,31 +143,6 @@ Multicast announcement`game_finished`->
 ### Trust model
 
 There's no authentication at all - if you can reach the beamer, you can do anything to it. This is part of why at bigger events they'll be on their own wifi.
-
-## `usbstorage`/ `onUsb`
-
-In this fork`onUsb`(triggered by `usbstorage`) carries three conceptually different things: "a USB drive state was updated", "a replay directory was downloaded through a deep-link", and "a Beamer cache was updated." All three share (approximately) a graphical interface - but this still feels weird to me...
-
-It was already overloaded before I touched it. Upstream at 2.5.1, `usbstorage` had two producers:
-
-1. `detect-usb` insert/eject -> `addReplayDir(dir, key)` on insert and raw `usbstorage` send on eject
-2. `handleProtocolLoadSlpUrls` download -> `addReplayDir(protocolLoadFullPath, '')`
-
-It seems like this channel is really meant to control "what displays in the top-left corner showing replay origin" and not per se usbs.
-
-In this fork, the payload went from `(dir, isUsb)` to `(dir, isUsb, beamerOrigin, beamerName)`, and there are now six producers: usb eject, cache clearing, cache pruning, usb insert, protocol load, and `copyFromBeamer`. The latter three are routed through `addReplayDir`.
-
-A few notes on why I really don't like the current shape:
-
-- The payload is a tagged union pretending to be positional arguments. Every consumer has to know which combinations are legal (`isUsb` true _and_ `beamerOrigin` set is meaningless, but nothing says so).
-- The name no longer describes any of its meanings, including the original one after eject re-announces a non-USB directory.
-- Some `usbstorage` sets go through `addReplayDir` and others don't - and some don't even go through the `onUsb` channel at all. `chooseReplaysDir`and the undo path set`dir`/`isUsb`/`beamerOrigin` locally from a return value and never touch the channe .
-
-I think this shape should probably be changed completely but I don't want to do a big refactor that's going to need to be undone if this ever goes upstream. I see three options (I personally prefer the 2nd):
-
-1. Keep the shape in this fork right now (`onUsb`controlling replay directory for Beamers + deep links + usb mounting, minimal refactoring of upstream)
-2. Refactor `usbstorage` into separate`replaydir` and `usbstorage` channels - downloads (like Beamer pulls and deep links) can send `replaydir` directly and the renderer thread can handle the much simpler `onUsb` and `onReplayDir` more cleanly.
-3. Keep `usbstorage` as is, add a `beamer` channel that ONLY works for Beamers and update Beamer state on `onBeamer` while leaving deep links alone. This is the cleanest design without any upstream refactoring but leaves the existing overload alone without piling onto it - feels very weird to me....
 
 ## Non-changes to replay manager
 

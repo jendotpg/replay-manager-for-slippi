@@ -37,6 +37,7 @@ import {
   EnforceState,
   EnforceStatus,
   Id,
+  DirType,
   Mode,
   Output,
   ParryggGame,
@@ -170,9 +171,10 @@ import {
 
 type ReplayDir = {
   dir: string;
+  dirType: DirType;
+  display: string;
   usbKey: string;
-  beamerOrigin: string;
-  beamerName: string;
+  beamerId: string;
 };
 
 let entrantsWindow: BrowserWindow | null = null;
@@ -211,26 +213,33 @@ export default function setupIPCs(
 
   let replayDirs: ReplayDir[] = [];
   const knownUsbs = new Map<string, boolean>();
-  // Helper to add a new replay directory and notify renderer
-  function addReplayDir(
-    dir: string,
-    usbKey: string,
-    beamerOrigin = '',
-    beamerNameOrEmpty = '',
-  ) {
-    replayDirs.push({
-      dir,
-      usbKey,
-      beamerOrigin,
-      beamerName: beamerNameOrEmpty,
-    });
+  const originByBeamer = new Map<string, string>();
+  const nameByBeamer = new Map<string, string>();
+
+  function announceReplayDir() {
+    const top =
+      replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
     mainWindow.webContents.send(
-      'usbstorage',
-      dir,
-      Boolean(usbKey),
-      beamerOrigin,
-      beamerNameOrEmpty,
+      'replaydir',
+      top ? top.display : '',
+      top ? top.dirType : 'local',
+      top?.dirType === 'beamer' ? top.beamerId : '',
     );
+  }
+
+  function rememberBeamer(beamerId: string, origin: string, name: string) {
+    originByBeamer.set(beamerId, origin);
+    nameByBeamer.set(beamerId, name);
+  }
+
+  function addReplayDir(entry: ReplayDir) {
+    replayDirs.push(entry);
+    announceReplayDir();
+  }
+
+  function removeReplayDirs(pred: (replayDir: ReplayDir) => boolean) {
+    replayDirs = replayDirs.filter((replayDir) => !pred(replayDir));
+    announceReplayDir();
   }
 
   let slpDownloadStatus: SlpDownloadStatus = { status: 'idle' };
@@ -247,7 +256,7 @@ export default function setupIPCs(
     }
   };
 
-  async function handleProtocolLoadSlpUrls(slpUrls: string[]) {
+  async function handleProtocolLoadSLPs(slpUrls: string[]) {
     await mkdir(protocolLoadFullPath, { recursive: true });
     const signal = startSlpDownload();
     const failedFiles: string[] = [];
@@ -319,12 +328,24 @@ export default function setupIPCs(
       slpDownloadStatus = { status: 'success' };
       if (mainWindow)
         mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
-      addReplayDir(protocolLoadFullPath, '');
+      let display = protocolLoadFullPath;
+      try {
+        display = new URL(slpUrls[0]).origin;
+      } catch {
+        // fall back to the cache path if the url can't be parsed
+      }
+      addReplayDir({
+        dir: protocolLoadFullPath,
+        dirType: 'deeplink',
+        display,
+        usbKey: '',
+        beamerId: '',
+      });
     }
   }
 
   eventEmitter.on('protocol-load-slp-urls', (slpUrls: string[]) => {
-    handleProtocolLoadSlpUrls(slpUrls);
+    handleProtocolLoadSLPs(slpUrls);
   });
 
   const onInsert = (e: MountData) => {
@@ -338,7 +359,13 @@ export default function setupIPCs(
         process.platform === 'win32'
           ? `${e.key}Slippi`
           : path.join(e.key, 'Slippi');
-      addReplayDir(dir, e.key);
+      addReplayDir({
+        dir,
+        dirType: 'usb',
+        display: dir,
+        usbKey: e.key,
+        beamerId: '',
+      });
     }
   };
   const onEject = (e: string) => {
@@ -347,16 +374,7 @@ export default function setupIPCs(
     }
 
     knownUsbs.delete(e);
-    replayDirs = replayDirs.filter((dir) => !dir.dir.startsWith(e));
-    const newDir =
-      replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
-    mainWindow.webContents.send(
-      'usbstorage',
-      newDir ? newDir.dir : '',
-      Boolean(newDir?.usbKey),
-      newDir?.beamerOrigin ?? '',
-      newDir?.beamerName ?? '',
-    );
+    removeReplayDirs((replayDir) => replayDir.dir.startsWith(e));
   };
   detectUsb.removeAllListeners('insert');
   detectUsb.on('insert', onInsert);
@@ -423,9 +441,10 @@ export default function setupIPCs(
     [chosenReplaysDir] = openDialogRes.filePaths;
     replayDirs.push({
       dir: chosenReplaysDir,
+      dirType: 'local',
+      display: chosenReplaysDir,
       usbKey: '',
-      beamerOrigin: '',
-      beamerName: '',
+      beamerId: '',
     });
     return chosenReplaysDir;
   });
@@ -505,13 +524,7 @@ export default function setupIPCs(
     const current =
       replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
     if (current?.dir === dest) {
-      mainWindow.webContents.send(
-        'usbstorage',
-        current.dir,
-        Boolean(current.usbKey),
-        current.beamerOrigin,
-        current.beamerName,
-      );
+      announceReplayDir();
     }
   };
 
@@ -551,8 +564,8 @@ export default function setupIPCs(
   let beamerEvents: BeamerEventsHandle | null = null;
   const statusRefreshInFlight = new globalThis.Set<string>();
 
-  const beamerLoaded = () =>
-    replayDirs.some((replayDir) => Boolean(replayDir.beamerOrigin));
+  const beamerSelected = () =>
+    replayDirs.some((replayDir) => replayDir.dirType === 'beamer');
 
   const refreshStationForEvent = async (
     fromAddress: string,
@@ -605,7 +618,7 @@ export default function setupIPCs(
   };
 
   const maybeStopBeamerEvents = () => {
-    if (beamerEvents && !beamerBrowse && !beamerLoaded()) {
+    if (beamerEvents && !beamerBrowse && !beamerSelected()) {
       beamerEvents.stop();
       beamerEvents = null;
     }
@@ -623,8 +636,8 @@ export default function setupIPCs(
     maybeStopBeamerEvents();
   };
 
-  ipcMain.removeHandler('copyFromBeamer');
-  ipcMain.handle('copyFromBeamer', async (event, addressOrHost: string) => {
+  ipcMain.removeHandler('selectBeamer');
+  ipcMain.handle('selectBeamer', async (event, addressOrHost: string) => {
     stopBeamerBrowse();
 
     const origin = toBeamerOrigin(addressOrHost);
@@ -655,7 +668,14 @@ export default function setupIPCs(
       if (existingI >= 0) {
         replayDirs.splice(existingI, 1);
       }
-      addReplayDir(dest, '', origin, label);
+      rememberBeamer(stationId, origin, label);
+      addReplayDir({
+        dir: dest,
+        dirType: 'beamer',
+        display: label,
+        usbKey: '',
+        beamerId: stationId,
+      });
       ensureBeamerEvents();
     })().catch((e) => {
       sendBeamerDownloadStatus({
@@ -668,12 +688,22 @@ export default function setupIPCs(
     return dest;
   });
 
-  ipcMain.removeHandler('refreshFromBeamer');
-  ipcMain.handle('refreshFromBeamer', async (event, origin: string) => {
+  const selectedBeamerDir = (beamerId: string) => {
     const current = replayDirs.find(
-      ({ beamerOrigin }) => beamerOrigin === origin,
+      (replayDir) =>
+        replayDir.dirType === 'beamer' && replayDir.beamerId === beamerId,
     );
     if (!current) {
+      throw new Error('Those replays are no longer loaded from a Beamer.');
+    }
+    return current.dir;
+  };
+
+  ipcMain.removeHandler('refreshFromBeamer');
+  ipcMain.handle('refreshFromBeamer', async (event, beamerId: string) => {
+    const dir = selectedBeamerDir(beamerId);
+    const origin = originByBeamer.get(beamerId);
+    if (!origin) {
       throw new Error('Those replays are no longer loaded from a Beamer.');
     }
 
@@ -681,7 +711,7 @@ export default function setupIPCs(
     const signal = startSlpDownload();
     try {
       await pullFromBeamer(
-        current.dir,
+        dir,
         files.slice(0, maxGamesFromIndex),
         sendBeamerDownloadStatus,
         signal,
@@ -691,22 +721,16 @@ export default function setupIPCs(
     }
   });
 
-  const beamerDirForOrigin = (origin: string) => {
-    const current = replayDirs.find(
-      ({ beamerOrigin }) => beamerOrigin === origin,
-    );
-    if (!current) {
-      throw new Error('Those replays are no longer loaded from a Beamer.');
-    }
-    return current.dir;
-  };
-
   ipcMain.removeHandler('getNextBeamerReplay');
-  ipcMain.handle('getNextBeamerReplay', async (event, origin: string) => {
+  ipcMain.handle('getNextBeamerReplay', async (event, beamerId: string) => {
     let dir;
+    const origin = originByBeamer.get(beamerId);
     try {
-      dir = beamerDirForOrigin(origin);
+      dir = selectedBeamerDir(beamerId);
     } catch {
+      return '';
+    }
+    if (!origin) {
       return '';
     }
     try {
@@ -718,21 +742,28 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('downloadNextBeamerReplay');
-  ipcMain.handle('downloadNextBeamerReplay', async (event, origin: string) => {
-    const dir = beamerDirForOrigin(origin);
-    const { files } = await getBeamerIndex(origin);
-    const next = await firstMissingFile(dir, files);
-    if (!next) {
-      return;
-    }
+  ipcMain.handle(
+    'downloadNextBeamerReplay',
+    async (event, beamerId: string) => {
+      const dir = selectedBeamerDir(beamerId);
+      const origin = originByBeamer.get(beamerId);
+      if (!origin) {
+        throw new Error('Those replays are no longer loaded from a Beamer.');
+      }
+      const { files } = await getBeamerIndex(origin);
+      const next = await firstMissingFile(dir, files);
+      if (!next) {
+        return;
+      }
 
-    const signal = startSlpDownload();
-    try {
-      await pullFromBeamer(dir, [next], sendBeamerDownloadStatus, signal);
-    } finally {
-      endSlpDownload(signal);
-    }
-  });
+      const signal = startSlpDownload();
+      try {
+        await pullFromBeamer(dir, [next], sendBeamerDownloadStatus, signal);
+      } finally {
+        endSlpDownload(signal);
+      }
+    },
+  );
 
   ipcMain.removeHandler('getReplayCacheSize');
   ipcMain.handle('getReplayCacheSize', () =>
@@ -743,16 +774,7 @@ export default function setupIPCs(
   ipcMain.handle('clearReplayCache', async () => {
     const cached = ({ dir }: ReplayDir) => dir.startsWith(replayCacheFullPath);
     if (replayDirs.some(cached)) {
-      replayDirs = replayDirs.filter((replayDir) => !cached(replayDir));
-      const newDir =
-        replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
-      mainWindow.webContents.send(
-        'usbstorage',
-        newDir ? newDir.dir : '',
-        Boolean(newDir?.usbKey),
-        newDir?.beamerOrigin ?? '',
-        newDir?.beamerName ?? '',
-      );
+      removeReplayDirs(cached);
     }
     maybeStopBeamerEvents();
     await clearReplayCache(replayCacheFullPath);
@@ -976,7 +998,10 @@ export default function setupIPCs(
     if (currentDir && copyDir && currentDir === copyDir) {
       return Promise.resolve(false);
     }
-    if (!undoSrcFullPath && replayDirs[replayDirs.length - 1].beamerOrigin) {
+    if (
+      !undoSrcFullPath &&
+      replayDirs[replayDirs.length - 1].dirType === 'beamer'
+    ) {
       return Promise.resolve(false);
     }
 
@@ -1048,8 +1073,8 @@ export default function setupIPCs(
   let replayLoadCount = 0;
   let enforcerSetting = store.get('enforcerSetting', EnforcerSetting.NONE);
   setOwnEnforcerSetting(enforcerSetting);
-  ipcMain.removeHandler('getReplaysInDir');
-  ipcMain.handle('getReplaysInDir', async () => {
+  ipcMain.removeHandler('getCurrentReplays');
+  ipcMain.handle('getCurrentReplays', async () => {
     if (replayDirs.length === 0 && !undoSrcFullPath) {
       throw new Error();
     }

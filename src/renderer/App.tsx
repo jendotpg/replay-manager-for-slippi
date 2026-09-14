@@ -75,6 +75,7 @@ import {
   CopySettings,
   EnforcerSetting,
   GuideState,
+  DirType,
   Id,
   InvalidReplay,
   BeamerEvent,
@@ -271,11 +272,10 @@ function Hello() {
     useState(true);
 
   // initial state
-  const [dir, setDir] = useState('');
+  const [display, setDisplay] = useState('');
   const [dirInit, setDirInit] = useState(false);
-  const [isUsb, setIsUsb] = useState(false);
-  const [beamerOrigin, setBeamerOrigin] = useState('');
-  const [beamerName, setBeamerName] = useState('');
+  const [dirType, setDirType] = useState<DirType>('local');
+  const [selectedBeamer, setSelectedBeamer] = useState('');
   const [beamerNextReplay, setBeamerNextReplay] = useState('');
   const [downloadingNextReplay, setDownloadingNextReplay] = useState(false);
   const [beamerDialogOpen, setBeamerDialogOpen] = useState(false);
@@ -412,7 +412,7 @@ function Hello() {
 
       // initial state
       const replaysDir = await replaysDirPromise;
-      setDir(replaysDir);
+      setDisplay(replaysDir);
       setDirInit(replaysDir.length > 0);
       setCopyDir(await copyDirPromise);
       setHost(await hostPromise);
@@ -708,21 +708,20 @@ function Hello() {
   const chooseDir = async () => {
     setGettingReplays(true);
     const newDir = await window.electron.chooseReplaysDir();
-    if (newDir && newDir !== dir) {
+    if (newDir && newDir !== display) {
       const {
         replays: newReplays,
         invalidReplays: newInvalidReplays,
         replayLoadCount: newReplayLoadCount,
-      } = await window.electron.getReplaysInDir();
+      } = await window.electron.getCurrentReplays();
       setAllReplaysSelected(true);
       applyAllReplaysSelected(newReplays, true);
       setBatchActives(
         getNewBatchActives(newReplays.filter((replay) => replay.selected)),
       );
-      setDir(newDir);
-      setIsUsb(false);
-      setBeamerOrigin('');
-      setBeamerName('');
+      setDisplay(newDir);
+      setDirType('local');
+      setSelectedBeamer('');
       setDirExists(true);
       setDirInit(false);
       resetOverrides();
@@ -765,7 +764,7 @@ function Hello() {
       let newInvalidReplays: InvalidReplay[] = [];
       setGettingReplays(true);
       try {
-        const res = await window.electron.getReplaysInDir();
+        const res = await window.electron.getCurrentReplays();
         newReplays = res.replays;
         newInvalidReplays = res.invalidReplays;
         setReplayLoadCount(res.replayLoadCount);
@@ -812,14 +811,14 @@ function Hello() {
   );
 
   useEffect(() => {
-    if (!beamerOrigin) {
+    if (!selectedBeamer) {
       setBeamerNextReplay('');
       return undefined;
     }
 
     let current = true;
     (async () => {
-      const next = await window.electron.getNextBeamerReplay(beamerOrigin);
+      const next = await window.electron.getNextBeamerReplay(selectedBeamer);
       if (current) {
         setBeamerNextReplay(next);
       }
@@ -827,16 +826,16 @@ function Hello() {
     return () => {
       current = false;
     };
-  }, [beamerOrigin, replays]);
+  }, [selectedBeamer, replays]);
 
   const downloadNextReplay = async () => {
-    if (!beamerOrigin) {
+    if (!selectedBeamer) {
       return;
     }
 
     setDownloadingNextReplay(true);
     try {
-      await window.electron.downloadNextBeamerReplay(beamerOrigin);
+      await window.electron.downloadNextBeamerReplay(selectedBeamer);
       await refreshReplays();
     } catch (e: any) {
       showErrorDialog([e instanceof Error ? e.message : e]);
@@ -845,17 +844,12 @@ function Hello() {
     }
   };
 
-  // A beamer announces over multicast the moment a game finishes. If it is the
-  // beamer we are loaded from, pull every replay we are missing right away
-  // (not just the newest) rather than waiting for the manual button or the next
-  // poll. Re-entrancy is guarded, with a trailing re-run so a finish that lands
-  // mid-pull is still picked up.
   const autoPullingRef = useRef(false);
   const autoPullAgainRef = useRef(false);
-  const pullMissingRef = useRef<(origin: string) => Promise<void>>(
+  const pullMissingRef = useRef<(beamerId: string) => Promise<void>>(
     async () => {},
   );
-  pullMissingRef.current = async (origin: string) => {
+  pullMissingRef.current = async (beamerId: string) => {
     if (autoPullingRef.current) {
       autoPullAgainRef.current = true;
       return;
@@ -865,7 +859,7 @@ function Hello() {
       do {
         autoPullAgainRef.current = false;
         // eslint-disable-next-line no-await-in-loop
-        await window.electron.refreshFromBeamer(origin);
+        await window.electron.refreshFromBeamer(beamerId);
         // eslint-disable-next-line no-await-in-loop
         await refreshReplays();
       } while (autoPullAgainRef.current);
@@ -880,9 +874,10 @@ function Hello() {
   beamerEventRef.current = (beamerEvent: BeamerEvent) => {
     if (
       beamerEvent.event === 'game_finished' &&
-      beamerEvent.origin === beamerOrigin
+      beamerEvent.stationId === selectedBeamer &&
+      selectedBeamer.length > 0
     ) {
-      pullMissingRef.current(beamerOrigin);
+      pullMissingRef.current(selectedBeamer);
     }
   };
   useEffect(() => {
@@ -892,8 +887,9 @@ function Hello() {
   }, []);
 
   const wouldDeleteCopyDir =
-    dir.length > 0 && copyDir.length > 0 && dir === copyDir;
-  const isBeamer = beamerOrigin.length > 0;
+    display.length > 0 && copyDir.length > 0 && display === copyDir;
+  const isUsb = dirType === 'usb';
+  const isBeamer = dirType === 'beamer';
   let deleteBlockedReason = '';
   if (isBeamer) {
     deleteBlockedReason = 'Replays came from a Beamer';
@@ -903,7 +899,7 @@ function Hello() {
   const [ejecting, setEjecting] = useState(false);
   const [ejected, setEjected] = useState(false);
   const deleteDir = async (usedFilenames: string[]) => {
-    if (!dir || wouldDeleteCopyDir || isBeamer) {
+    if (!display || wouldDeleteCopyDir || isBeamer) {
       return;
     }
 
@@ -919,7 +915,7 @@ function Hello() {
     }
   };
   const deleteSelected = async (used: boolean) => {
-    if (!dir || wouldDeleteCopyDir || isBeamer) {
+    if (!display || wouldDeleteCopyDir || isBeamer) {
       return;
     }
 
@@ -935,13 +931,13 @@ function Hello() {
     }
   };
   const deleteUndo = async () => {
-    if (!dir || !undoSubdir || wouldDeleteCopyDir) {
+    if (!display || !undoSubdir || wouldDeleteCopyDir) {
       return;
     }
 
     setDirDeleting(true);
     try {
-      setDir(await window.electron.deleteUndoSrcDst());
+      setDisplay(await window.electron.deleteUndoSrcDst());
       setUndoSubdir('');
       refreshReplays(true);
     } finally {
@@ -1042,19 +1038,16 @@ function Hello() {
   }, [confirmedCopySettings, copyDirSet, selectedSet, tournamentSet]);
 
   useEffect(() => {
-    window.electron.onUsb(
-      (e, newDir, newIsUsb, newBeamerOrigin, newBeamerName) => {
-        if (!undoSubdir) {
-          setDir(newDir);
-          setIsUsb(newIsUsb);
-          setBeamerOrigin(newBeamerOrigin);
-          setBeamerName(newBeamerName);
-          setWasDeleted(false);
-          refreshReplays(true);
-          setEjected(false);
-        }
-      },
-    );
+    window.electron.onReplayDir((e, newDisplay, newDirType, newBeamerId) => {
+      if (!undoSubdir) {
+        setDisplay(newDisplay);
+        setDirType(newDirType);
+        setSelectedBeamer(newDirType === 'beamer' ? newBeamerId : '');
+        setWasDeleted(false);
+        refreshReplays(true);
+        setEjected(false);
+      }
+    });
   }, [refreshReplays, undoSubdir]);
 
   const availablePlayers: PlayerOverrides[] = [];
@@ -2138,10 +2131,10 @@ function Hello() {
                   if (undoSubdir) {
                     return `Fixing ${undoSubdir}`;
                   }
-                  if (beamerName) {
-                    return `Beamer ${beamerName}`;
+                  if (isBeamer) {
+                    return `Beamer ${display}`;
                   }
-                  return dir || 'Set replays folder...';
+                  return display || 'Set replays folder...';
                 })()}
                 style={{ flexGrow: 1 }}
               />
@@ -2153,7 +2146,7 @@ function Hello() {
                   <Tooltip arrow title="Cancel">
                     <IconButton
                       onClick={async () => {
-                        setDir(await window.electron.setUndoSubdir(''));
+                        setDisplay(await window.electron.setUndoSubdir(''));
                         setUndoSubdir('');
                         refreshReplays(true);
                       }}
@@ -2164,7 +2157,7 @@ function Hello() {
                 ))}
               {!undoSubdir && (
                 <>
-                  {dir && (
+                  {display && (
                     <Tooltip
                       arrow
                       title={
@@ -2190,7 +2183,7 @@ function Hello() {
                       </span>
                     </Tooltip>
                   )}
-                  {dir &&
+                  {display &&
                     dirExists &&
                     !gettingReplays &&
                     (replays.length > 0 || invalidReplays.length > 0) &&
@@ -2278,21 +2271,21 @@ function Hello() {
                         </div>
                       </Tooltip>
                     ))}
-                  {dir && !gettingReplays && (
+                  {display && !gettingReplays && (
                     <Tooltip
                       arrow
                       title={
-                        beamerOrigin
+                        isBeamer
                           ? 'Pull new replays from Beamer'
                           : 'Refresh replays'
                       }
                     >
                       <IconButton
                         onClick={async () => {
-                          if (beamerOrigin) {
+                          if (selectedBeamer) {
                             try {
                               await window.electron.refreshFromBeamer(
-                                beamerOrigin,
+                                selectedBeamer,
                               );
                             } catch (e: any) {
                               showErrorDialog([
@@ -2533,7 +2526,7 @@ function Hello() {
         spacing="8px"
       >
         <TopColumn flexGrow={1} minWidth="600px">
-          {dir &&
+          {display &&
             !gettingReplays &&
             (dirExists ? (
               <>
@@ -2660,7 +2653,7 @@ function Hello() {
                   : 'Replays folder not found.'}
               </Alert>
             ))}
-          {dir && gettingReplays && (
+          {display && gettingReplays && (
             <CircularProgress
               size="24px"
               style={{
@@ -3375,12 +3368,13 @@ function Hello() {
                     disableGutters
                     onClick={async () => {
                       try {
-                        setDir(
+                        setDisplay(
                           await window.electron.setUndoSubdir(reportedSubdir),
                         );
                         setUndoSubdir(reportedSubdir);
                         setUndoDialogOpen(false);
-                        setIsUsb(false);
+                        setDirType('local');
+                        setSelectedBeamer('');
                         setWasDeleted(false);
                         refreshReplays(true);
                         setEjected(false);
