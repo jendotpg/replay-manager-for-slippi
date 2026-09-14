@@ -459,6 +459,7 @@ export default function BeamerDialog({
                 <TableCell>P2</TableCell>
                 <TableCell>Ports changed</TableCell>
                 <TableCell>Characters changed</TableCell>
+                <TableCell>Game started</TableCell>
                 <TableCell />
                 <TableCell />
               </TableRow>
@@ -523,6 +524,16 @@ export default function BeamerDialog({
                           liveSecs(
                             `${station.address}:chars`,
                             station.secsSinceCharacterChange,
+                          ),
+                        )}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography color="text.secondary" variant="body2">
+                        {formatSecs(
+                          liveSecs(
+                            `${station.address}:game`,
+                            station.secsSinceGameStart,
                           ),
                         )}
                       </Typography>

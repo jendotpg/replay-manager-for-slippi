@@ -28,6 +28,7 @@ import {
   SelectedSetChain,
   OfflineModeStatus,
   StartggGame,
+  BeamerEvent,
   BeamerFleet,
 } from '../common/types';
 
@@ -403,6 +404,12 @@ const electronHandler = {
   ) => {
     ipcRenderer.removeAllListeners('beamerFleet');
     ipcRenderer.on('beamerFleet', callback);
+  },
+  onBeamerEvent: (
+    callback: (event: IpcRendererEvent, beamerEvent: BeamerEvent) => void,
+  ) => {
+    ipcRenderer.removeAllListeners('beamerEvent');
+    ipcRenderer.on('beamerEvent', callback);
   },
   update: (): Promise<void> => ipcRenderer.invoke('update'),
   isMac: process.platform === 'darwin',

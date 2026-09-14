@@ -61,6 +61,7 @@ export type DownloadOptions = {
   onBytes?: (written: number) => void;
   onAttempt?: (attempt: number) => void;
   signal?: AbortSignal;
+  beamerResume?: boolean;
 };
 
 async function sizeOf(file: string) {
@@ -104,12 +105,25 @@ function expectedTotal(
   return fromIndex !== undefined && fromIndex >= 0 ? fromIndex : -1;
 }
 
+function resumeHeader(
+  beamer: boolean,
+  from: number,
+): Record<string, string> | undefined {
+  if (from <= 0) {
+    return undefined;
+  }
+  return beamer
+    ? { 'X-Replay-From': String(from) }
+    : { Range: `bytes=${from}-` };
+}
+
 async function downloadAttempt(
   url: string,
   part: string,
   options: DownloadOptions,
 ): Promise<number> {
   const from = await sizeOf(part);
+  const beamer = options.beamerResume === true;
   const controller = new AbortController();
   const abort = () => controller.abort();
   options.signal?.addEventListener('abort', abort, { once: true });
@@ -127,7 +141,7 @@ async function downloadAttempt(
     try {
       response = await fetch(url, {
         signal: controller.signal,
-        headers: from > 0 ? { Range: `bytes=${from}-` } : undefined,
+        headers: resumeHeader(beamer, from),
       });
     } catch (error) {
       if (options.signal?.aborted) {
@@ -145,9 +159,13 @@ async function downloadAttempt(
       });
     }
 
-    const resumed = from > 0 && response.status === 206;
+    const resumed =
+      from > 0 &&
+      (beamer
+        ? Number(response.headers.get('x-replay-from')) === from
+        : response.status === 206);
     const start = resumed ? from : 0;
-    if (response.status !== (start > 0 ? 206 : 200)) {
+    if (response.status !== (!beamer && start > 0 ? 206 : 200)) {
       throw statusError(response.status);
     }
     if (!response.body) {

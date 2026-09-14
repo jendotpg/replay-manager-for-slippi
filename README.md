@@ -1,6 +1,28 @@
 # Beamer support in replay manager
 
-This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi).
+This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi) to support getting replays over the air from [slippi-beamer](https://github.com/jendotpg/slippi-beamer) devices.
+
+TODO:
+
+- catch up to main
+- update "network model" for new multicast subscription
+- update downloads
+
+  - make downloads respect `Retry-After`
+  - make download show as toast rather than dialog (bottom left, covering settings button and whitespace)
+
+- beamer subscription model
+
+  - in fleet view, subscribe button on the left of each beamer replacing the current "error"/"warning" sign. just make the light cover that (red/amber/green, lit for live). auto-subscribe when a beamer is selected if the settings say so!
+  - settings option for "beamer auto-subscribe" - sometimes useful, sometimes not!
+  - update "non-changes to replay manager" section - now there Are background downloads...
+
+- actually use this in tournament a few times:
+
+  - NYSE redemption (1 router)
+  - NYSE main bracket (1 router, maybe 2 APs - we'll need to test...)
+  - dawn of the DED (2-3 sharded routers? 1 router, 2-3 APs? we'll need to test...)
+  - if all of these work well, ill submit a PR to upstream
 
 ## What a Beamer is
 
@@ -10,14 +32,14 @@ In short: TOs can use Beamers to report a set with only a station number - no ne
 
 ### The network contract
 
-| Method | Path             | What it does                                                  |
-| ------ | ---------------- | ------------------------------------------------------------- |
-| `GET`  | `/SLIPPI/`       | Index of the replays this station is currently serving.       |
-| `GET`  | `/status`        | The last self-check, cached. Runs nothing, so poll it freely. |
-| `POST` | `/status`        | Re-runs the check, then returns the fresh report.             |
-| `GET`  | `/SLIPPI/<file>` | The replay itself.                                            |
-| `POST` | `/reset-beamer`  | Erases the replay drive. Requires`X-Beamer-Confirm: reset`.   |
-| mDNS   | N/A              | Stations advertise`_beamer._tcp` on port 80.                  |
+| Method             | Path                 | What it does                                                  |
+| ------------------ | -------------------- | ------------------------------------------------------------- |
+| `GET`              | `/SLIPPI/`           | Index of the replays this station is currently serving.       |
+| `GET`              | `/status`            | The last self-check, cached. Runs nothing, so poll it freely. |
+| `GET`              | `/SLIPPI/<file>`     | The replay itself.                                            |
+| `POST`             | `/reset-beamer`      | Erases the replay drive. Requires`X-Beamer-Confirm: reset`.   |
+| mDNS               | N/A                  | Stations advertise`_beamer._tcp` on port 80.                  |
+| multicast announce | `239.255.42.1:34700` | Sends events on game start and game finish                    |
 
 `GET /SLIPPI/` -> a JSON index of the replays the station is serving right now, newest first (`NUM-REPLAYS-SERVED`, up to 16).
 
@@ -42,6 +64,9 @@ In short: TOs can use Beamers to report a set with only a station number - no ne
   "station_id": "60ed5b25-5a43-5481-9d5c-abcb52dcb1f2",
   "station_name": "dev-unit-02",
   "ssid": "nycmelee",
+  "rssi": -58,        # the station's own radio, refreshed every 10s; null until the network is up
+  "phy_mode": "HT20", # 11B/11G/11A/HT20/HT40/HE20/VHT20/LR/unknown - a fallback to 11G explains a slow pull
+  "channel": 6,
   "replay_count": 17,
   "replay_cap": 512,
   "ssh": false,
@@ -68,10 +93,49 @@ In short: TOs can use Beamers to report a set with only a station number - no ne
   },
   "secs_since_port_change": 888, # how many seconds have the same ports been in use
   "secs_since_character_change": 888, # how many seconds have the same characters AND ports been in use
+  "secs_since_game_start": null, # how many seconds since the last game start
   "health": "ok",
   "warnings": []
 }
 ```
+
+Multicast announcement `game_started`->
+
+```json
+{
+  "schema": 1,
+  "event": "game_finished",
+  "station_id": "3f2a...",
+  "station_name": "stream station 2",
+  "seq": 8,
+  "replay": {
+    "name": "Game_20260814T181203.slp",
+    "size": 2134, # this is nonsense - don't worry about it!
+    "url": "/SLIPPI/Game_20260814T181203.slp" # not valid until the game is finished!
+  },
+  "game": { ... } # the same object as /status "game" - here "live": true
+}
+```
+
+Multicast announcement`game_finished`->
+
+```json
+{
+  "schema": 1,
+  "event": "game_finished",
+  "station_id": "3f2a...",
+  "station_name": "stream station 2",
+  "seq": 7,
+  "replay": {
+    "name": "Game_20260814T181203.slp",
+    "size": 412393, # final size on the card
+    "url": "/SLIPPI/Game_20260814T181203.slp" #accessible right now
+  },
+  "game": { ... } # the same object as /status "game" - here "live": false
+}
+```
+
+`game_started`:
 
 ### Trust model
 
@@ -101,41 +165,6 @@ I think this shape should probably be changed completely but I don't want to do 
 1. Keep the shape in this fork right now (`onUsb`controlling replay directory for Beamers + deep links + usb mounting, minimal refactoring of upstream)
 2. Refactor `usbstorage` into separate`replaydir` and `usbstorage` channels - downloads (like Beamer pulls and deep links) can send `replaydir` directly and the renderer thread can handle the much simpler `onUsb` and `onReplayDir` more cleanly.
 3. Keep `usbstorage` as is, add a `beamer` channel that ONLY works for Beamers and update Beamer state on `onBeamer` while leaving deep links alone. This is the cleanest design without any upstream refactoring but leaves the existing overload alone without piling onto it - feels very weird to me....
-
-## Changes to replay manager
-
-### `src/main/beamer.ts` (new) — the replay index and the local cache
-
-### `src/main/discover.ts` (new) — mDNS, `/status`, `/reset-beamer`
-
-### `src/main/util.ts` — `downloadFile` moved out of `ipc.ts`, now shared with the Beamer pull and rewritten to survive venue wifi
-
-### `src/main/ipc.ts` — a number of changes to the stateful layer
-
-Sixteen new `invoke` handlers (`copyFromBeamer`, `refreshFromBeamer`, `cancelBeamerDownload`, `getNextBeamerReplay`, `downloadNextBeamerReplay`, `getMaxGamesFromIndex` / `setMaxGamesFromIndex`, `startBeamerBrowse` / `stopBeamerBrowse`, `getBeamerFleet`, `refreshBeamerStatus`, `refreshAllBeamerStations`, `resetBeamerStation`, `resetAllBeamerStations`, `getBeamerCacheSize`, `clearBeamerCache`) and one new push channel, `beamerFleet`.
-
-A few notes:
-
-- `ReplayDir`got new fields to account for a new type of location
-- The fleet poll is forgiving. A failed `/status` poll does not remove a station from the list if it's advertising over mDNS.
-- The fleet is keyed by address, not by station name. Nothing stops two stations from advertising the same instance name.
-- Pulling .slps from the Beamer index is windowed. `maxGamesFromIndex` caps how many of the newest index entries `copyFromBeamer` and `refreshFromBeamer` pass to `pullFromBeamer`. `pruneStaleReplaysFor` still passes the full index to `pruneStaleReplays`, so a replay that fell outside the download window is still shown if it's still being served.
-
-### `src/main/preload.ts` — matching changes to the bridge
-
-### `src/renderer/BeamerDialog.tsx` (new) - dialog to manage beamer fleet
-
-### `src/renderer/ReplayList.tsx` - the "Download next replay" row
-
-### `src/renderer/App.tsx` - add Beamer button, show the Beamer as the source, disable eject / delete paths for Beamer sources, and point refresh at the Beamer
-
-### `SetControls.tsx`- disable delete from Beamer cache
-
-### `Settings.tsx`- let user delete cached replays
-
-### `SlpDownloadModal.tsx` - a Cancel button, a `cancelled` state, an `(n of m)` counter, and a "retrying" line
-
-### `common/`- new beamer types and constant
 
 ## Non-changes to replay manager
 
@@ -172,6 +201,5 @@ The flags that reproduce states the app has to handle:
 - `--warn "DRIVE FILLING,NO WII"` -> `health: "warn"` with those labels, which should show the amber icon and the labels in its tooltip.
 - `--unreported` -> `503` on `GET /status`, which should drop the station off the list rather than raising an error - `listedBeamerStations` only lists stations that have reported.
 - `--cap` / `--served` -> the `replay_cap` the station reports and how many replays it publishes, for the `17/512 replays` line.
-- `--post-delay` -> how long `POST /status` takes, so the refresh spinner is visible.
 
 This test doesn't emulate the USB gadget, the LED, the config file, the reset endpoint's actual destruction, the `409` you get from the station's API lock, or the timing of a real Beamer.

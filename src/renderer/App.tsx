@@ -77,6 +77,7 @@ import {
   GuideState,
   Id,
   InvalidReplay,
+  BeamerEvent,
   Mode,
   OfflineModeStatus,
   Output,
@@ -843,6 +844,52 @@ function Hello() {
       setDownloadingNextReplay(false);
     }
   };
+
+  // A beamer announces over multicast the moment a game finishes. If it is the
+  // beamer we are loaded from, pull every replay we are missing right away
+  // (not just the newest) rather than waiting for the manual button or the next
+  // poll. Re-entrancy is guarded, with a trailing re-run so a finish that lands
+  // mid-pull is still picked up.
+  const autoPullingRef = useRef(false);
+  const autoPullAgainRef = useRef(false);
+  const pullMissingRef = useRef<(origin: string) => Promise<void>>(
+    async () => {},
+  );
+  pullMissingRef.current = async (origin: string) => {
+    if (autoPullingRef.current) {
+      autoPullAgainRef.current = true;
+      return;
+    }
+    autoPullingRef.current = true;
+    try {
+      do {
+        autoPullAgainRef.current = false;
+        // eslint-disable-next-line no-await-in-loop
+        await window.electron.refreshFromBeamer(origin);
+        // eslint-disable-next-line no-await-in-loop
+        await refreshReplays();
+      } while (autoPullAgainRef.current);
+    } catch (e: any) {
+      showErrorDialog([e instanceof Error ? e.message : e]);
+    } finally {
+      autoPullingRef.current = false;
+    }
+  };
+
+  const beamerEventRef = useRef<(beamerEvent: BeamerEvent) => void>(() => {});
+  beamerEventRef.current = (beamerEvent: BeamerEvent) => {
+    if (
+      beamerEvent.event === 'game_finished' &&
+      beamerEvent.origin === beamerOrigin
+    ) {
+      pullMissingRef.current(beamerOrigin);
+    }
+  };
+  useEffect(() => {
+    window.electron.onBeamerEvent((_event, beamerEvent) => {
+      beamerEventRef.current(beamerEvent);
+    });
+  }, []);
 
   const wouldDeleteCopyDir =
     dir.length > 0 && copyDir.length > 0 && dir === copyDir;

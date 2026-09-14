@@ -221,6 +221,7 @@ export async function pullFromBeamer(
     send(file, attempt, true);
     try {
       await downloadFile(file.url, path.join(dest, file.name), {
+        beamerResume: true,
         expectedSize: file.size,
         signal,
         onBytes: (written) => {

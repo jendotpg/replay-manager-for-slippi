@@ -26,6 +26,7 @@ import { createWriteStream } from 'fs';
 import yauzl from 'yauzl-promise';
 import { pipeline } from 'stream/promises';
 import {
+  BeamerEvent,
   BeamerFleet,
   BeamerStation,
   ChallongeMatchItem,
@@ -134,12 +135,13 @@ import {
 } from './beamer';
 import {
   BeamerBrowseHandle,
+  BeamerEventsHandle,
   browseForBeamers,
   FLEET_POLL_MS,
   getBeamerStatus,
-  postBeamerStatus,
   resetBeamer,
   stationFromStatus,
+  subscribeBeamerEvents,
   unreportedStation,
 } from './discover';
 import {
@@ -513,11 +515,9 @@ export default function setupIPCs(
   };
 
   type BeamerBase = Pick<BeamerStation, 'address' | 'host'>;
-  const refreshBeamerStation = async (base: BeamerBase, post: boolean) => {
+  const refreshBeamerStation = async (base: BeamerBase) => {
     const origin = toBeamerOrigin(base.address);
-    const result = post
-      ? await postBeamerStatus(origin)
-      : await getBeamerStatus(origin);
+    const result = await getBeamerStatus(origin);
     const station =
       result.kind === 'status'
         ? stationFromStatus(base, result.body)
@@ -538,13 +538,76 @@ export default function setupIPCs(
     await Promise.all(
       bases.map(async (base) => {
         try {
-          await refreshBeamerStation(base, false);
+          await refreshBeamerStation(base);
         } catch {
           // not necessarily lost, might just be blocked :P
         }
       }),
     );
     sendBeamerFleet();
+  };
+
+  let beamerEvents: BeamerEventsHandle | null = null;
+  const statusRefreshInFlight = new globalThis.Set<string>();
+
+  const beamerLoaded = () =>
+    replayDirs.some((replayDir) => Boolean(replayDir.beamerOrigin));
+
+  const refreshStationForEvent = async (
+    fromAddress: string,
+    stationId: string,
+  ) => {
+    const station =
+      beamerStations.get(fromAddress) ??
+      Array.from(beamerStations.values()).find(
+        (candidate) => stationId !== '' && candidate.stationId === stationId,
+      );
+    if (!station || statusRefreshInFlight.has(station.address)) {
+      return;
+    }
+    statusRefreshInFlight.add(station.address);
+    try {
+      await refreshBeamerStation({
+        address: station.address,
+        host: station.host,
+      });
+      sendBeamerFleet();
+    } catch {
+      // blocked or gone; the periodic poll will catch up
+    } finally {
+      statusRefreshInFlight.delete(station.address);
+    }
+  };
+
+  const onBeamerEvent = (
+    event: Omit<BeamerEvent, 'origin'>,
+    fromAddress: string,
+  ) => {
+    refreshStationForEvent(fromAddress, event.stationId).catch(() => {});
+    const forwarded: BeamerEvent = {
+      ...event,
+      origin: toBeamerOrigin(fromAddress),
+    };
+    mainWindow.webContents.send('beamerEvent', forwarded);
+  };
+
+  const ensureBeamerEvents = () => {
+    if (beamerEvents) {
+      return;
+    }
+    beamerEvents = subscribeBeamerEvents({
+      onEvent: onBeamerEvent,
+      onError: () => {
+        // best-effort: a bind/join failure just means no live hints this session
+      },
+    });
+  };
+
+  const maybeStopBeamerEvents = () => {
+    if (beamerEvents && !beamerBrowse && !beamerLoaded()) {
+      beamerEvents.stop();
+      beamerEvents = null;
+    }
   };
 
   const stopBeamerBrowse = () => {
@@ -556,6 +619,7 @@ export default function setupIPCs(
     }
     beamerStations.clear();
     beamerFleetError = '';
+    maybeStopBeamerEvents();
   };
 
   ipcMain.removeHandler('copyFromBeamer');
@@ -591,6 +655,7 @@ export default function setupIPCs(
         replayDirs.splice(existingI, 1);
       }
       addReplayDir(dest, '', origin, label);
+      ensureBeamerEvents();
     })().catch((e) => {
       sendBeamerDownloadStatus({
         status: 'error',
@@ -688,6 +753,7 @@ export default function setupIPCs(
         newDir?.beamerName ?? '',
       );
     }
+    maybeStopBeamerEvents();
     await clearReplayCache(replayCacheFullPath);
   });
 
@@ -699,13 +765,14 @@ export default function setupIPCs(
     beamerFleetError = '';
     beamerBrowse = browseForBeamers({
       onFound: (base) => {
+        ensureBeamerEvents();
         const existing = beamerStations.get(base.address);
         beamerStations.set(
           base.address,
           existing ? { ...existing, ...base } : unreportedStation(base),
         );
         sendBeamerFleet();
-        refreshBeamerStation(base, false)
+        refreshBeamerStation(base)
           .then(sendBeamerFleet)
           .catch(() => {
             sendBeamerFleet();
@@ -768,10 +835,10 @@ export default function setupIPCs(
     if (!existing) {
       throw new Error('That station is no longer advertising itself.');
     }
-    await refreshBeamerStation(
-      { address: existing.address, host: existing.host },
-      true,
-    );
+    await refreshBeamerStation({
+      address: existing.address,
+      host: existing.host,
+    });
     sendBeamerFleet();
   });
 
@@ -784,10 +851,7 @@ export default function setupIPCs(
 
     const results = await Promise.allSettled(
       targets.map((station) =>
-        refreshBeamerStation(
-          { address: station.address, host: station.host },
-          true,
-        ),
+        refreshBeamerStation({ address: station.address, host: station.host }),
       ),
     );
 
@@ -819,7 +883,7 @@ export default function setupIPCs(
     await resetBeamer(toBeamerOrigin(base.address));
 
     try {
-      await refreshBeamerStation(base, true);
+      await refreshBeamerStation(base);
     } catch {
       // The next poll will catch up.
     }
@@ -838,7 +902,7 @@ export default function setupIPCs(
         const base = { address: station.address, host: station.host };
         await resetBeamer(toBeamerOrigin(base.address));
         try {
-          await refreshBeamerStation(base, true);
+          await refreshBeamerStation(base);
         } catch {
           // The next poll will catch up.
         }

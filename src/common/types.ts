@@ -617,6 +617,7 @@ export type BeamerStation = {
   warnings: string[];
   secsSincePortChange: number | null;
   secsSinceCharacterChange: number | null;
+  secsSinceGameStart: number | null;
   reported: boolean;
   game: BeamerGame | null;
 };
@@ -625,4 +626,16 @@ export type BeamerFleet = {
   stations: BeamerStation[];
   browsing: boolean;
   error: string;
+};
+
+export type BeamerEventKind = 'game_started' | 'game_finished';
+
+export type BeamerEvent = {
+  event: BeamerEventKind;
+  stationId: string;
+  stationName: string;
+  seq: number;
+  replay: { name: string; size: number; url: string };
+  game: BeamerGame | null;
+  origin: string;
 };

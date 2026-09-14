@@ -1,5 +1,9 @@
 import DnsSd, { DnsSdBrowse } from '@fugood/dns-sd';
+import { createSocket } from 'dgram';
+import os from 'os';
 import {
+  BeamerEvent,
+  BeamerEventKind,
   BeamerGame,
   BeamerHealth,
   BeamerPort,
@@ -8,8 +12,10 @@ import {
 
 export const FLEET_POLL_MS = 10000;
 
+export const EVENT_GROUP = '239.255.42.1';
+export const EVENT_PORT = 34700;
+
 const STATUS_TIMEOUT_MS = 4000;
-const STATUS_POST_TIMEOUT_MS = 30000;
 const MAX_STATUS_BYTES = 1024 * 1024;
 
 function asString(value: unknown) {
@@ -85,6 +91,7 @@ export function stationFromStatus(
     warnings: asWarnings(status.warnings),
     secsSincePortChange: asSecs(status.secs_since_port_change),
     secsSinceCharacterChange: asSecs(status.secs_since_character_change),
+    secsSinceGameStart: asSecs(status.secs_since_game_start),
     reported: true,
     game: asGame(status.game),
   };
@@ -106,6 +113,7 @@ export function unreportedStation(
     warnings: [],
     secsSincePortChange: null,
     secsSinceCharacterChange: null,
+    secsSinceGameStart: null,
     reported: false,
     game: null,
   };
@@ -136,17 +144,11 @@ export type StatusResult =
   | { kind: 'status'; body: any }
   | { kind: 'unreported' };
 
-async function requestStatus(
-  origin: string,
-  method: 'GET' | 'POST',
-  timeoutMs: number,
-): Promise<StatusResult> {
+export async function getBeamerStatus(origin: string): Promise<StatusResult> {
   let response;
   try {
     response = await fetch(`${origin}/status`, {
-      method,
-      ...(method === 'POST' ? { body: '' } : {}),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
     });
   } catch (e: any) {
     if (
@@ -161,11 +163,6 @@ async function requestStatus(
   if (response.status === 503) {
     return { kind: 'unreported' };
   }
-  if (response.status === 409) {
-    throw new Error(
-      'That station is busy with another action - try again in a moment.',
-    );
-  }
   if (!response.ok) {
     throw new Error(`${origin} answered ${response.status} for /status.`);
   }
@@ -177,14 +174,6 @@ async function requestStatus(
     );
   }
   return { kind: 'status', body };
-}
-
-export function getBeamerStatus(origin: string) {
-  return requestStatus(origin, 'GET', STATUS_TIMEOUT_MS);
-}
-
-export function postBeamerStatus(origin: string) {
-  return requestStatus(origin, 'POST', STATUS_POST_TIMEOUT_MS);
 }
 
 const RESET_TIMEOUT_MS = 90000;
@@ -295,6 +284,100 @@ export function browseForBeamers(callbacks: {
         browser.removeAllListeners();
         browser.stop();
         browser = null;
+      }
+    },
+  };
+}
+
+const EVENT_KINDS: BeamerEventKind[] = ['game_started', 'game_finished'];
+
+export function parseBeamerEvent(
+  buf: Buffer,
+): Omit<BeamerEvent, 'origin'> | null {
+  let body: any;
+  try {
+    body = JSON.parse(buf.toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== 'object' || !('schema' in body)) {
+    return null;
+  }
+  if (!EVENT_KINDS.includes(body.event)) {
+    return null;
+  }
+  if (typeof body.station_id !== 'string' || !Number.isInteger(body.seq)) {
+    return null;
+  }
+  const { replay } = body;
+  if (
+    !replay ||
+    typeof replay !== 'object' ||
+    typeof replay.name !== 'string' ||
+    !replay.name ||
+    typeof replay.url !== 'string' ||
+    !replay.url
+  ) {
+    return null;
+  }
+  return {
+    event: body.event as BeamerEventKind,
+    stationId: body.station_id,
+    stationName: asString(body.station_name),
+    seq: body.seq,
+    replay: {
+      name: replay.name,
+      size: Number.isInteger(replay.size) ? replay.size : -1,
+      url: replay.url,
+    },
+    game: asGame(body.game),
+  };
+}
+
+export type BeamerEventsHandle = {
+  stop: () => void;
+};
+
+export function subscribeBeamerEvents(callbacks: {
+  onEvent: (event: Omit<BeamerEvent, 'origin'>, fromAddress: string) => void;
+  onError: (error: Error) => void;
+}): BeamerEventsHandle {
+  const socket = createSocket({ type: 'udp4', reuseAddr: true });
+
+  socket.on('error', (error) => {
+    callbacks.onError(error);
+  });
+  socket.on('message', (msg, rinfo) => {
+    const event = parseBeamerEvent(msg);
+    if (event) {
+      callbacks.onEvent(event, rinfo.address);
+    }
+  });
+
+  socket.bind(EVENT_PORT, () => {
+    const join = (iface?: string) => {
+      try {
+        socket.addMembership(EVENT_GROUP, iface);
+      } catch {
+        // already a member on this interface, or it cannot join here
+      }
+    };
+    join();
+    Object.values(os.networkInterfaces()).forEach((ifaces) => {
+      (ifaces ?? []).forEach((ni) => {
+        if (ni.family === 'IPv4' && !ni.internal) {
+          join(ni.address);
+        }
+      });
+    });
+  });
+
+  return {
+    stop: () => {
+      try {
+        socket.close();
+      } catch {
+        // already closed
       }
     },
   };
