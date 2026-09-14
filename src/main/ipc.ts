@@ -652,6 +652,22 @@ export default function setupIPCs(
     const label = stationName || beamerName(origin, stationId);
 
     const dest = beamerDirFor(beamerFullPath, origin, stationId);
+
+    await mkdir(dest, { recursive: true });
+    const existingI = replayDirs.findIndex(({ dir }) => dir === dest);
+    if (existingI >= 0) {
+      replayDirs.splice(existingI, 1);
+    }
+    rememberBeamer(stationId, origin, label);
+    addReplayDir({
+      dir: dest,
+      dirType: 'beamer',
+      display: label,
+      usbKey: '',
+      beamerId: stationId,
+    });
+    ensureBeamerEvents();
+
     const signal = startSlpDownload();
     (async () => {
       try {
@@ -664,19 +680,7 @@ export default function setupIPCs(
       } finally {
         endSlpDownload(signal);
       }
-      const existingI = replayDirs.findIndex(({ dir }) => dir === dest);
-      if (existingI >= 0) {
-        replayDirs.splice(existingI, 1);
-      }
-      rememberBeamer(stationId, origin, label);
-      addReplayDir({
-        dir: dest,
-        dirType: 'beamer',
-        display: label,
-        usbKey: '',
-        beamerId: stationId,
-      });
-      ensureBeamerEvents();
+      announceReplayDir();
     })().catch((e) => {
       sendBeamerDownloadStatus({
         status: 'error',

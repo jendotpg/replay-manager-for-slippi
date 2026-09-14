@@ -26,18 +26,28 @@ const BACKOFF_MS = [1000, 2000, 4000, 4000];
 
 export class DownloadError extends Error {
   readonly retryable: boolean;
+
   readonly discardPartial: boolean;
+
   readonly unreachable: boolean;
+
+  readonly retryAfterMs: number | undefined;
 
   constructor(
     message: string,
-    { retryable = true, discardPartial = false, unreachable = false } = {},
+    {
+      retryable = true,
+      discardPartial = false,
+      unreachable = false,
+      retryAfterMs = undefined as number | undefined,
+    } = {},
   ) {
     super(message);
     this.name = 'DownloadError';
     this.retryable = retryable;
     this.discardPartial = discardPartial;
     this.unreachable = unreachable;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -80,11 +90,31 @@ async function discard(file: string) {
   }
 }
 
-function statusError(status: number) {
+// see RFC 7231 Retry-After
+function parseRetryAfter(value: string | null): number | undefined {
+  if (value === null) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed) * 1000;
+  }
+  const date = Date.parse(trimmed);
+  if (Number.isNaN(date)) {
+    return undefined;
+  }
+  return Math.max(0, date - Date.now());
+}
+
+function statusError(response: Response) {
+  const { status } = response;
   const retryable = status >= 500 || status === 408 || status === 429;
   return new DownloadError(`HTTP ${status}`, {
     retryable,
     discardPartial: status === 404,
+    retryAfterMs: retryable
+      ? parseRetryAfter(response.headers.get('retry-after'))
+      : undefined,
   });
 }
 
@@ -166,7 +196,7 @@ async function downloadAttempt(
         : response.status === 206);
     const start = resumed ? from : 0;
     if (response.status !== (!beamer && start > 0 ? 206 : 200)) {
-      throw statusError(response.status);
+      throw statusError(response);
     }
     if (!response.body) {
       throw new DownloadError('no response body');
@@ -260,7 +290,9 @@ export async function downloadFile(
 
       tries += 1;
       options.onAttempt?.(tries);
-      const backoff = BACKOFF_MS[Math.min(attempts - 1, BACKOFF_MS.length - 1)];
+      const backoff =
+        failure.retryAfterMs ??
+        BACKOFF_MS[Math.min(attempts - 1, BACKOFF_MS.length - 1)];
       // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => {
         setTimeout(resolve, backoff);

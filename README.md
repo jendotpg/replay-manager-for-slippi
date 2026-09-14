@@ -4,11 +4,6 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-- update downloads
-
-  - make downloads respect `Retry-After`
-  - make download show as toast rather than dialog (bottom left, covering settings button and whitespace)
-
 - beamer subscription model
 
   - in fleet view, subscribe button on the left of each beamer replacing the current "error"/"warning" sign. just make the light cover that (red/amber/green, lit for live). auto-subscribe when a beamer is selected if the settings say so!
@@ -150,11 +145,11 @@ No new dependencies.
 
 No background network traffic. The mDNS browser and the 10 s fleet poll run only while the dialog is open. A TO who never opens it never sees a multicast packet.
 
-No new download or progress UI. The `replay-manager:` protocol handler already had `SlpDownloadStatus`, the `slp-download-status` channel, and `SlpDownloadModal`. The Beamer pull emits the same statuses on the same channel into the same modal. `pullFromBeamer` takes an `onStatus` callback for exactly this reason. The status payload gained three optional fields and one new variant; the modal gained a Cancel button and a retry line.
+The `replay-manager:` protocol handler already had `SlpDownloadStatus` and the `slp-download-status` channel. The Beamer pull emits the same statuses on the same channel. `pullFromBeamer` takes an `onStatus` callback for exactly this reason. The status payload gained three optional fields and one new variant. The old blocking `SlpDownloadModal` dialog became `SlpDownloadSnackbar`: a bottom-left cancellable snackbar that auto-dismisses on success and shows a Close button otherwise. It also gained retry management.
 
 Four things change for a user who never touches a Beamer:
 
-1. `downloadFile` is shared with the `replay-manager:` protocol handler, so that path inherits the resume, the retries, the watchdogs, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
+1. `downloadFile` is shared with the `replay-manager:` protocol handler, so that path inherits the resume, the retries (which honor a server `Retry-After` on 429/503), the watchdogs, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
 2. A failed or cancelled protocol download leaves a `.part` file behind. Upstream immediately deleted the partial file; this fork keeps it so a retry resumes and Settings can delete it. If the host ignores `Range` the fragment is dropped and the file downloads in full upon retry.
 3. Protocol downloads moved from `userData/protocol` to `userData/replayCache/protocol`, alongside the Beamer cache at `userData/replayCache/beamer`. One "Delete cached replays" button in Settings clears both.
 4. Two controls are always visible: the Beamer button in the app bar, and the "No cached replays" row in Settings.

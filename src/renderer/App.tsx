@@ -120,7 +120,7 @@ import AssignStream from './AssignStream';
 import getCharacterIcon from './getCharacterIcon';
 import RightColumn from './RightColumn';
 import { WindowEvent } from './setWindowEventListener';
-import SlpDownloadModal from './SlpDownloadModal';
+import SlpDownloadSnackbar from './SlpDownloadSnackbar';
 import BeamerDialog from './BeamerDialog';
 import { assertInteger, assertString } from '../common/asserts';
 import OfflineModeConnection from './OfflineModeConnection';
@@ -2072,7 +2072,7 @@ function Hello() {
 
   return (
     <>
-      <SlpDownloadModal
+      <SlpDownloadSnackbar
         status={slpDownloadStatus}
         onClose={async () => {
           setSlpDownloadStatus({ status: 'idle' });
@@ -2533,7 +2533,10 @@ function Hello() {
                 <ReplayList
                   dirInit={dirInit}
                   nextReplayName={beamerNextReplay}
-                  downloadingNextReplay={downloadingNextReplay}
+                  downloadingNextReplay={
+                    downloadingNextReplay ||
+                    slpDownloadStatus.status === 'downloading'
+                  }
                   onDownloadNext={downloadNextReplay}
                   numAvailablePlayers={availablePlayers.length}
                   replays={replays}

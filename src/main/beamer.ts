@@ -8,6 +8,12 @@ import { DownloadError, downloadFile } from './util';
 const INDEX_ATTEMPTS = 3;
 const INDEX_RETRY_MS = 1000;
 const STATUS_THROTTLE_MS = 100;
+const SEQUENTIAL_GAP_MS = 500;
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 export type BeamerFile = { name: string; size: number; url: string };
 
@@ -246,6 +252,15 @@ export async function pullFromBeamer(
     send(file, attempt, true);
   };
 
+  let pulledOnce = false;
+  const pullNext = async (file: BeamerFile) => {
+    if (pulledOnce) {
+      await sleep(SEQUENTIAL_GAP_MS);
+    }
+    pulledOnce = true;
+    await pull(file);
+  };
+
   const cancelled = () => {
     if (!signal?.aborted) {
       return false;
@@ -263,7 +278,7 @@ export async function pullFromBeamer(
       return;
     }
     // eslint-disable-next-line no-await-in-loop
-    await pull(missing[i]);
+    await pullNext(missing[i]);
     if (unreachable) {
       const reason = unreachable;
       missing.slice(i + 1).forEach((file) => {
@@ -282,7 +297,7 @@ export async function pullFromBeamer(
         return;
       }
       // eslint-disable-next-line no-await-in-loop
-      await pull(stragglers[i]);
+      await pullNext(stragglers[i]);
       if (unreachable) {
         break;
       }
