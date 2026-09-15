@@ -8,7 +8,7 @@ import {
   Paper,
 } from '@mui/material';
 
-import { SlpDownloadStatus } from '../common/types';
+import { BeamerDownloadStatus } from '../common/types';
 
 function LinearProgressWithLabel({ value }: { value: number }) {
   return (
@@ -25,12 +25,12 @@ function LinearProgressWithLabel({ value }: { value: number }) {
   );
 }
 
-export default function SlpDownloadSnackbar({
+export default function BeamerDownloadSnackbar({
   status,
   onClose,
   onCancel,
 }: {
-  status: SlpDownloadStatus;
+  status: BeamerDownloadStatus;
   onClose: () => void;
   onCancel: () => void;
 }) {

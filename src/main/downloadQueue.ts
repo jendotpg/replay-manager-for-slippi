@@ -1,6 +1,6 @@
 import path from 'path';
 import { mkdir, stat } from 'fs/promises';
-import { SlpDownloadStatus } from '../common/types';
+import { BeamerDownloadStatus } from '../common/types';
 import { BeamerFile, hasCompleteFile } from './beamer';
 import { DownloadError, downloadFile } from './util';
 
@@ -43,7 +43,7 @@ type Batch = {
 type BackgroundJob = { dest: string; name: string; url: string; size: number };
 
 export type DownloadQueueDeps = {
-  onStatus: (status: SlpDownloadStatus) => void;
+  onStatus: (status: BeamerDownloadStatus) => void;
   onFileComplete: (dest: string) => void;
 };
 

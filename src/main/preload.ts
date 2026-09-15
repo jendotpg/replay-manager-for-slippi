@@ -15,6 +15,7 @@ import {
   ReportSettings,
   Set,
   SlpDownloadStatus,
+  BeamerDownloadStatus,
   StartggSet,
   Tournament,
   WebSocketServerStatus,
@@ -44,6 +45,12 @@ const electronHandler = {
     ipcRenderer.removeAllListeners('slp-download-status');
     ipcRenderer.on('slp-download-status', callback);
   },
+  onBeamerDownloadStatus: (
+    callback: (event: IpcRendererEvent, status: BeamerDownloadStatus) => void,
+  ) => {
+    ipcRenderer.removeAllListeners('beamer-download-status');
+    ipcRenderer.on('beamer-download-status', callback);
+  },
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
     ipcRenderer.invoke('chooseReplaysDir'),
@@ -53,8 +60,8 @@ const electronHandler = {
     ipcRenderer.invoke('setBeamerSubscribed', address, subscribed),
   refreshFromBeamer: (beamerId: string): Promise<void> =>
     ipcRenderer.invoke('refreshFromBeamer', beamerId),
-  cancelSlpDownload: (): Promise<void> =>
-    ipcRenderer.invoke('cancelSlpDownload'),
+  cancelBeamerDownload: (): Promise<void> =>
+    ipcRenderer.invoke('cancelBeamerDownload'),
   getMaxGamesFromIndex: (): Promise<number> =>
     ipcRenderer.invoke('getMaxGamesFromIndex'),
   setMaxGamesFromIndex: (maxGamesFromIndex: number): Promise<number> =>

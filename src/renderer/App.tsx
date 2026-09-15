@@ -89,6 +89,7 @@ import {
   SelectedSetChain,
   Set,
   SlpDownloadStatus,
+  BeamerDownloadStatus,
   StartggSet,
   State,
   Stream,
@@ -119,7 +120,8 @@ import AssignStream from './AssignStream';
 import getCharacterIcon from './getCharacterIcon';
 import RightColumn from './RightColumn';
 import { WindowEvent } from './setWindowEventListener';
-import SlpDownloadSnackbar from './SlpDownloadSnackbar';
+import SlpDownloadModal from './SlpDownloadModal';
+import BeamerDownloadSnackbar from './BeamerDownloadSnackbar';
 import BeamerDialog from './BeamerDialog';
 import { assertInteger, assertString } from '../common/asserts';
 import OfflineModeConnection from './OfflineModeConnection';
@@ -223,12 +225,21 @@ function Hello() {
   const [slpDownloadStatus, setSlpDownloadStatus] = useState<SlpDownloadStatus>(
     { status: 'idle' },
   );
+  const [beamerDownloadStatus, setBeamerDownloadStatus] =
+    useState<BeamerDownloadStatus>({ status: 'idle' });
 
   useEffect(() => {
     const handler = (_event: any, status: SlpDownloadStatus) => {
       setSlpDownloadStatus(status);
     };
     window.electron.onSlpDownloadStatus(handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (_event: any, status: BeamerDownloadStatus) => {
+      setBeamerDownloadStatus(status);
+    };
+    window.electron.onBeamerDownloadStatus(handler);
   }, []);
 
   const [errors, setErrors] = useState<string[]>([]);
@@ -2029,13 +2040,19 @@ function Hello() {
 
   return (
     <>
-      <SlpDownloadSnackbar
+      <SlpDownloadModal
         status={slpDownloadStatus}
         onClose={async () => {
           setSlpDownloadStatus({ status: 'idle' });
         }}
+      />
+      <BeamerDownloadSnackbar
+        status={beamerDownloadStatus}
+        onClose={async () => {
+          setBeamerDownloadStatus({ status: 'idle' });
+        }}
         onCancel={async () => {
-          await window.electron.cancelSlpDownload();
+          await window.electron.cancelBeamerDownload();
         }}
       />
       <BeamerDialog
@@ -2492,7 +2509,7 @@ function Hello() {
                   nextReplayName={beamerNextReplay}
                   downloadingNextReplay={
                     downloadingNextReplay ||
-                    slpDownloadStatus.status === 'downloading'
+                    beamerDownloadStatus.status === 'downloading'
                   }
                   onDownloadNext={downloadNextReplay}
                   numAvailablePlayers={availablePlayers.length}

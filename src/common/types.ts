@@ -443,6 +443,17 @@ export type SlpDownloadStatus =
       slpUrls: string[];
       progress: number;
       currentFile: string;
+    }
+  | { status: 'error'; failedFiles: string[] }
+  | { status: 'success' };
+
+export type BeamerDownloadStatus =
+  | { status: 'idle' }
+  | {
+      status: 'downloading';
+      slpUrls: string[];
+      progress: number;
+      currentFile: string;
       source?: string;
       filesDone?: number;
       totalFiles?: number;

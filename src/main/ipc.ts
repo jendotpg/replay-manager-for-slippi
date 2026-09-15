@@ -46,6 +46,7 @@ import {
   SelectedSetChain,
   Set,
   SlpDownloadStatus,
+  BeamerDownloadStatus,
   StartggGame,
   StartggSet,
 } from '../common/types';
@@ -252,89 +253,44 @@ export default function setupIPCs(
 
   let slpDownloadStatus: SlpDownloadStatus = { status: 'idle' };
 
-  let slpDownload: AbortController | null = null;
-
-  const startSlpDownload = () => {
-    slpDownload?.abort();
-    slpDownload = new AbortController();
-    return slpDownload.signal;
-  };
-  const endSlpDownload = (signal: AbortSignal) => {
-    if (slpDownload?.signal === signal) {
-      slpDownload = null;
-    }
-  };
-
   async function handleProtocolLoadSLPs(slpUrls: string[]) {
     await mkdir(protocolLoadFullPath, { recursive: true });
-    const signal = startSlpDownload();
     const failedFiles: string[] = [];
     const total = slpUrls.length;
     let completed = 0;
-
-    // A deeplink has no friendly name; the origin is the most useful label.
-    let source = '';
-    try {
-      source = new URL(slpUrls[0]).origin;
-    } catch {
-      // leave unset; the snackbar falls back to the filename
-    }
 
     const send = (fileName: string) => {
       slpDownloadStatus = {
         status: 'downloading',
         slpUrls,
-        progress: (completed / total) * 100,
+        progress: Math.round((completed / total) * 100),
         currentFile: fileName,
-        source,
-        filesDone: completed,
-        totalFiles: total,
       };
       if (mainWindow) {
         mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
       }
     };
 
-    if (total > 0) {
-      send(path.basename(new URL(slpUrls[0]).pathname));
-    }
-    try {
-      await Promise.all(
-        slpUrls.map(async (url) => {
-          const fileName = path.basename(new URL(url).pathname);
-          const dest = path.join(protocolLoadFullPath, fileName);
-          try {
-            await downloadFile(url, dest, { signal });
-          } catch (err) {
-            failedFiles.push(url);
-          } finally {
-            completed += 1;
-            send(fileName);
-          }
-        }),
-      );
-    } finally {
-      endSlpDownload(signal);
-    }
-
-    if (signal.aborted) {
-      slpDownloadStatus = {
-        status: 'cancelled',
-        filesDone: total - failedFiles.length,
-        totalFiles: total,
-      };
-      mainWindow?.webContents.send('slp-download-status', slpDownloadStatus);
-      return;
-    }
+    await Promise.all(
+      slpUrls.map(async (url) => {
+        const fileName = path.basename(new URL(url).pathname);
+        const dest = path.join(protocolLoadFullPath, fileName);
+        try {
+          await downloadFile(url, dest);
+        } catch (err) {
+          failedFiles.push(url);
+        } finally {
+          completed += 1;
+          send(fileName);
+        }
+      }),
+    );
 
     slpDownloadStatus = {
       status: 'downloading',
       slpUrls,
       progress: 100,
       currentFile: '',
-      source,
-      filesDone: total,
-      totalFiles: total,
     };
     if (mainWindow) {
       mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
@@ -486,9 +442,8 @@ export default function setupIPCs(
     },
   );
 
-  const sendBeamerDownloadStatus = (status: SlpDownloadStatus) => {
-    slpDownloadStatus = status;
-    mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
+  const sendBeamerDownloadStatus = (status: BeamerDownloadStatus) => {
+    mainWindow.webContents.send('beamer-download-status', status);
   };
 
   const downloadQueue = createDownloadQueue({
@@ -496,9 +451,8 @@ export default function setupIPCs(
     onFileComplete: announceIfActive,
   });
 
-  ipcMain.removeHandler('cancelSlpDownload');
-  ipcMain.handle('cancelSlpDownload', () => {
-    slpDownload?.abort();
+  ipcMain.removeHandler('cancelBeamerDownload');
+  ipcMain.handle('cancelBeamerDownload', () => {
     downloadQueue.cancelForeground();
   });
 

@@ -8,9 +8,20 @@ TODO:
 
   - add a subscribe-all button to the beamer fleet view (turns into a clear subscriptions button only if all are subscribed)
   - stop replay count from line breaking (its capped at "1024/1024" anyway LOL)
-  - stop "Ports changed", "characters changed", "game started" from eliding
+  - stop "Ports changed", "characters changed", "game started" from line breaking
+    - honestly, don't bother showing "characters changed"! i don't think its helpful (we can add it back later. not worth taking out of the firmware.)
 
-- remove the 500ms delay - root cause fixed!
+- snackbar should update as the download queue does:
+
+  - show all beamer names for pending updates, not just the first one (adjust status bar whenever the download queue changes to represent progress across current total)
+    - you can elide down with "+ N more" in little gray text if there are too many
+  - make it less tall?
+
+- fake replay tool update:
+
+  - setting to announce game after a certain delay
+  - automatically populate replay index with at least "served game"
+
 - reflash all the beamers... ugh...
 - clean this whole thing up :3
 
@@ -146,12 +157,10 @@ No new dependencies.
 
 Background network traffic only exists if any beamers are subscribed to. Subscribing to a station (the toggle on the left of its fleet row) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive. The mDNS browser and a 10 s fleet poll run only while the fleet dialog is open - the multicast listener and subscription pulls continue even while the dialog is closed. Subscriptions are session only. A TO with no Beamer on the network sees no background work.
 
-The `replay-manager:` protocol handler already had `SlpDownloadStatus` and the `slp-download-status` channel. The Beamer queue emits the same statuses on the same channel, which is why it takes an `onStatus` callback. The status payload gained three optional fields and one new variant. The old blocking `SlpDownloadModal` dialog became `SlpDownloadSnackbar`: a bottom-left cancellable snackbar that auto-dismisses on success and shows a Close button otherwise. It also gained retry management.
-
 Four things change for a user who never touches a Beamer:
 
 1. `downloadFile` is shared with the `replay-manager:` protocol handler, so that path inherits the resume, the retries (which honor a server `Retry-After` on 429/503), the watchdogs, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
-2. A failed or cancelled protocol download leaves a `.part` file behind. Upstream immediately deleted the partial file; this fork keeps it so a retry resumes and Settings can delete it. If the host ignores `Range` the fragment is dropped and the file downloads in full upon retry.
+2. A failed protocol download leaves a `.part` file behind. Upstream immediately deleted the partial file; this fork keeps it so a retry resumes and Settings can delete it. If the host ignores `Range` the fragment is dropped and the file downloads in full upon retry.
 3. Protocol downloads moved from `userData/protocol` to `userData/replayCache/protocol`, alongside the Beamer cache at `userData/replayCache/beamer`. One "Delete cached replays" button in Settings clears both.
 4. Two controls are always visible: the Beamer button in the app bar, and the "No cached replays" row in Settings.
 
