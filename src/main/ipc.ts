@@ -132,9 +132,9 @@ import {
   getBeamerIndex,
   listCachedReplays,
   pruneStaleReplays,
-  pullFromBeamer,
   toBeamerOrigin,
 } from './beamer';
+import { createDownloadQueue } from './downloadQueue';
 import {
   BeamerBrowseHandle,
   BeamerEventsHandle,
@@ -254,58 +254,14 @@ export default function setupIPCs(
 
   let slpDownload: AbortController | null = null;
 
-  type PendingPull = { dest: string; name: string; url: string };
-  const pendingPulls: PendingPull[] = [];
-  let bgPull: AbortController | null = null;
-  let bgPulling = false;
-
-  const drainPulls = () => {
-    if (bgPulling || slpDownload || pendingPulls.length === 0) {
-      return;
-    }
-    const job = pendingPulls[0];
-    bgPulling = true;
-    bgPull = new AbortController();
-    (async () => {
-      try {
-        await pullFromBeamer(
-          job.dest,
-          [{ name: job.name, url: job.url, size: -1 }],
-          () => {},
-          bgPull!.signal,
-        );
-      } catch {
-        // oh well - will be pulled manually on select.
-      } finally {
-        bgPulling = false;
-        bgPull = null;
-        if (!slpDownload) {
-          pendingPulls.shift();
-          announceIfActive(job.dest);
-        }
-        drainPulls();
-      }
-    })();
-  };
-
-  const enqueuePull = (job: PendingPull) => {
-    if (pendingPulls.some((p) => p.dest === job.dest && p.name === job.name)) {
-      return;
-    }
-    pendingPulls.push(job);
-    drainPulls();
-  };
-
   const startSlpDownload = () => {
     slpDownload?.abort();
     slpDownload = new AbortController();
-    bgPull?.abort();
     return slpDownload.signal;
   };
   const endSlpDownload = (signal: AbortSignal) => {
     if (slpDownload?.signal === signal) {
       slpDownload = null;
-      drainPulls();
     }
   };
 
@@ -535,27 +491,15 @@ export default function setupIPCs(
     mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
   };
 
-  const beamerOnStatus = (source: string, dest?: string) => {
-    let lastFilesDone = 0;
-    return (status: SlpDownloadStatus) => {
-      sendBeamerDownloadStatus(
-        status.status === 'downloading' ? { ...status, source } : status,
-      );
-      if (
-        dest &&
-        status.status === 'downloading' &&
-        typeof status.filesDone === 'number' &&
-        status.filesDone > lastFilesDone
-      ) {
-        lastFilesDone = status.filesDone;
-        announceIfActive(dest);
-      }
-    };
-  };
+  const downloadQueue = createDownloadQueue({
+    onStatus: sendBeamerDownloadStatus,
+    onFileComplete: announceIfActive,
+  });
 
   ipcMain.removeHandler('cancelSlpDownload');
   ipcMain.handle('cancelSlpDownload', () => {
     slpDownload?.abort();
+    downloadQueue.cancelForeground();
   });
 
   const beamerStations = new Map<string, BeamerStation>();
@@ -658,7 +602,7 @@ export default function setupIPCs(
   };
 
   let beamerEvents: BeamerEventsHandle | null = null;
-  const statusRefreshInFlight = new globalThis.Set<string>();
+  const statusRefreshInFlight = new global.Set<string>();
 
   const beamerSelected = () =>
     replayDirs.some((replayDir) => replayDir.dirType === 'beamer');
@@ -704,10 +648,11 @@ export default function setupIPCs(
       const sub = subscriptionForEvent(fromAddress, event.stationId);
       if (sub) {
         try {
-          enqueuePull({
+          downloadQueue.enqueueBackground({
             dest: beamerDirFor(beamerFullPath, sub.origin, sub.stationId),
             name: event.replay.name,
             url: new URL(event.replay.url, sub.origin).toString(),
+            size: -1,
           });
         } catch {
           // unparseable replay url - it'll get fetched on select
@@ -793,27 +738,20 @@ export default function setupIPCs(
       sendBeamerFleet();
     }
 
-    const signal = startSlpDownload();
-    (async () => {
-      try {
-        await pullFromBeamer(
-          dest,
-          files.slice(0, maxGamesFromIndex),
-          beamerOnStatus(label, dest),
-          signal,
-        );
-      } finally {
-        endSlpDownload(signal);
-      }
-      announceReplayDir();
-    })().catch((e) => {
-      sendBeamerDownloadStatus({
-        status: 'error',
-        failedFiles: [
-          `The pull failed: ${e instanceof Error ? e.message : String(e)}`,
-        ],
+    downloadQueue
+      .enqueueForegroundBatch(dest, files.slice(0, maxGamesFromIndex), label)
+      .then(() => {
+        announceReplayDir();
+        return undefined;
+      })
+      .catch((e) => {
+        sendBeamerDownloadStatus({
+          status: 'error',
+          failedFiles: [
+            `The pull failed: ${e instanceof Error ? e.message : String(e)}`,
+          ],
+        });
       });
-    });
     return dest;
   });
 
@@ -837,17 +775,11 @@ export default function setupIPCs(
     }
 
     const { files } = await getBeamerIndex(origin);
-    const signal = startSlpDownload();
-    try {
-      await pullFromBeamer(
-        dir,
-        files.slice(0, maxGamesFromIndex),
-        beamerOnStatus(nameByBeamer.get(beamerId) ?? beamerId, dir),
-        signal,
-      );
-    } finally {
-      endSlpDownload(signal);
-    }
+    await downloadQueue.enqueueForegroundBatch(
+      dir,
+      files.slice(0, maxGamesFromIndex),
+      nameByBeamer.get(beamerId) ?? beamerId,
+    );
     announceIfActive(dir);
   });
 
@@ -886,17 +818,11 @@ export default function setupIPCs(
         return;
       }
 
-      const signal = startSlpDownload();
-      try {
-        await pullFromBeamer(
-          dir,
-          [next],
-          beamerOnStatus(nameByBeamer.get(beamerId) ?? beamerId, dir),
-          signal,
-        );
-      } finally {
-        endSlpDownload(signal);
-      }
+      await downloadQueue.enqueueForegroundBatch(
+        dir,
+        [next],
+        nameByBeamer.get(beamerId) ?? beamerId,
+      );
       announceIfActive(dir);
     },
   );
@@ -908,6 +834,7 @@ export default function setupIPCs(
 
   ipcMain.removeHandler('clearReplayCache');
   ipcMain.handle('clearReplayCache', async () => {
+    downloadQueue.clear();
     const cached = ({ dir }: ReplayDir) => dir.startsWith(replayCacheFullPath);
     if (replayDirs.some(cached)) {
       removeReplayDirs(cached);

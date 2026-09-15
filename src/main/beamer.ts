@@ -1,19 +1,10 @@
-import { mkdir, readdir, rm, stat, unlink } from 'fs/promises';
+import { readdir, rm, stat, unlink } from 'fs/promises';
 import path from 'path';
 import sanitize from 'sanitize-filename';
 import { parse as parseIpaddr } from 'ipaddr.js';
-import { SlpDownloadStatus } from '../common/types';
-import { DownloadError, downloadFile } from './util';
 
 const INDEX_ATTEMPTS = 3;
 const INDEX_RETRY_MS = 1000;
-const STATUS_THROTTLE_MS = 100;
-const SEQUENTIAL_GAP_MS = 500;
-
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
 
 export type BeamerFile = { name: string; size: number; url: string };
 
@@ -139,7 +130,7 @@ export function beamerDirFor(
   return path.join(cacheRoot, sanitize(name) || 'beamer');
 }
 
-async function hasCompleteFile(dest: string, file: BeamerFile) {
+export async function hasCompleteFile(dest: string, file: BeamerFile) {
   try {
     const stats = await stat(path.join(dest, file.name));
     return stats.isFile() && (file.size < 0 || stats.size === file.size);
@@ -154,170 +145,6 @@ export async function firstMissingFile(dest: string, files: BeamerFile[]) {
   );
   const i = present.findIndex((have) => !have);
   return i >= 0 ? files[i] : null;
-}
-
-async function partSize(dest: string, name: string) {
-  try {
-    return (await stat(path.join(dest, `${name}.part`))).size;
-  } catch {
-    return 0;
-  }
-}
-
-export async function pullFromBeamer(
-  dest: string,
-  files: BeamerFile[],
-  onStatus: (status: SlpDownloadStatus) => void,
-  signal?: AbortSignal,
-) {
-  await mkdir(dest, { recursive: true });
-
-  const present = await Promise.all(
-    files.map((file) => hasCompleteFile(dest, file)),
-  );
-  const missing = files.filter((file, i) => !present[i]);
-  if (missing.length === 0) {
-    onStatus({ status: 'success' });
-    return;
-  }
-
-  const slpUrls = missing.map((file) => file.url);
-  const failures = new Map<string, string>();
-
-  const totalBytes = missing.reduce((sum, file) => sum + file.size, 0);
-  const byBytes = missing.every((file) => file.size >= 0) && totalBytes > 0;
-  const bytesWritten = new Map<string, number>();
-
-  let filesDone = 0;
-  let completed = 0;
-  let highWater = 0;
-  let lastSentAt = 0;
-
-  const send = (file: BeamerFile, attempt: number, force = false) => {
-    const now = Date.now();
-    if (!force && now - lastSentAt < STATUS_THROTTLE_MS) {
-      return;
-    }
-    lastSentAt = now;
-    let done = 0;
-    bytesWritten.forEach((bytes) => {
-      done += bytes;
-    });
-    const progress = byBytes
-      ? (done / totalBytes) * 100
-      : (filesDone / missing.length) * 100;
-    highWater = Math.max(highWater, progress);
-    onStatus({
-      status: 'downloading',
-      slpUrls,
-      progress: highWater,
-      currentFile: file.name,
-      filesDone,
-      totalFiles: missing.length,
-      attempt,
-    });
-  };
-
-  let unreachable = '';
-
-  const pull = async (file: BeamerFile) => {
-    let attempt = 1;
-    const started = await partSize(dest, file.name);
-    bytesWritten.set(file.name, started);
-    send(file, attempt, true);
-    try {
-      await downloadFile(file.url, path.join(dest, file.name), {
-        beamerResume: true,
-        expectedSize: file.size,
-        signal,
-        onBytes: (written) => {
-          bytesWritten.set(file.name, written);
-          send(file, attempt);
-        },
-        onAttempt: (n) => {
-          attempt = n;
-        },
-      });
-      failures.delete(file.name);
-      bytesWritten.set(file.name, Math.max(file.size, 0));
-      completed += 1;
-    } catch (e) {
-      const reason = e instanceof Error ? e.message : String(e);
-      failures.set(file.name, reason);
-      if (e instanceof DownloadError && e.unreachable) {
-        unreachable = reason;
-      }
-    }
-    filesDone += 1;
-    send(file, attempt, true);
-  };
-
-  let pulledOnce = false;
-  const pullNext = async (file: BeamerFile) => {
-    if (pulledOnce) {
-      await sleep(SEQUENTIAL_GAP_MS);
-    }
-    pulledOnce = true;
-    await pull(file);
-  };
-
-  const cancelled = () => {
-    if (!signal?.aborted) {
-      return false;
-    }
-    onStatus({
-      status: 'cancelled',
-      filesDone: completed,
-      totalFiles: missing.length,
-    });
-    return true;
-  };
-
-  for (let i = 0; i < missing.length; i += 1) {
-    if (cancelled()) {
-      return;
-    }
-    // eslint-disable-next-line no-await-in-loop
-    await pullNext(missing[i]);
-    if (unreachable) {
-      const reason = unreachable;
-      missing.slice(i + 1).forEach((file) => {
-        failures.set(file.name, reason);
-      });
-      break;
-    }
-  }
-
-  const stragglers = unreachable
-    ? []
-    : missing.filter((file) => failures.has(file.name));
-  if (stragglers.length > 0) {
-    for (let i = 0; i < stragglers.length; i += 1) {
-      if (cancelled()) {
-        return;
-      }
-      // eslint-disable-next-line no-await-in-loop
-      await pullNext(stragglers[i]);
-      if (unreachable) {
-        break;
-      }
-    }
-  }
-
-  if (cancelled()) {
-    return;
-  }
-  onStatus(
-    failures.size > 0
-      ? {
-          status: 'error',
-          failedFiles: Array.from(
-            failures,
-            ([name, reason]) => `${name} — ${reason}`,
-          ),
-        }
-      : { status: 'success' },
-  );
 }
 
 export async function listCachedReplays(dest: string) {

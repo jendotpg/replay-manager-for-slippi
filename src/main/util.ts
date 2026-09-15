@@ -68,7 +68,7 @@ function networkError(error: unknown) {
 
 export type DownloadOptions = {
   expectedSize?: number;
-  onBytes?: (written: number) => void;
+  onChunk?: (written: number) => void;
   onAttempt?: (attempt: number) => void;
   signal?: AbortSignal;
   beamerResume?: boolean;
@@ -210,7 +210,7 @@ async function downloadAttempt(
       (chunk: Buffer) => {
         written += chunk.length;
         watchdog(STALL_TIMEOUT_MS);
-        options.onBytes?.(written);
+        options.onChunk?.(written);
         return chunk;
       },
     );
@@ -272,6 +272,9 @@ export async function downloadFile(
         best = 0;
       }
       if (!failure.retryable) {
+        throw failure;
+      }
+      if (failure.retryAfterMs !== undefined) {
         throw failure;
       }
 

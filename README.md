@@ -4,7 +4,15 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-- figure out why first download never fails and second more or less always does?
+- fleet view updates:
+
+  - add a subscribe-all button to the beamer fleet view (turns into a clear subscriptions button only if all are subscribed)
+  - stop replay count from line breaking (its capped at "1024/1024" anyway LOL)
+  - stop "Ports changed", "characters changed", "game started" from eliding
+
+- remove "auto-subscribe on select" setting (and stop doing it). its a stupid design. people should just subscribe to stations.
+- remove the 500ms delay - root cause fixed!
+- reflash all the beamers... ugh...
 - clean this whole thing up :3
 
   - code cleanliness
@@ -137,9 +145,9 @@ There's no authentication at all - if you can reach the beamer, you can do anyth
 
 No new dependencies.
 
-Background network traffic exists if any beamers are subscribed to. Subscribing to a station (the toggle on the left of its fleet row) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive. The mDNS browser and a 10 s fleet poll run only while the fleet dialog is open - the multicast listener and subscription pulls continue even while the dialog is closed. Background pulls always yield to a foreground one — catching up the Beamer you are viewing, or a manual refresh, comes first. Subscriptions are session only. A TO with no Beamer on the network sees no background work.
+Background network traffic only exists if any beamers are subscribed to. Subscribing to a station (the toggle on the left of its fleet row) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive. The mDNS browser and a 10 s fleet poll run only while the fleet dialog is open - the multicast listener and subscription pulls continue even while the dialog is closed. Subscriptions are session only. A TO with no Beamer on the network sees no background work.
 
-The `replay-manager:` protocol handler already had `SlpDownloadStatus` and the `slp-download-status` channel. The Beamer pull emits the same statuses on the same channel. `pullFromBeamer` takes an `onStatus` callback for exactly this reason. The status payload gained three optional fields and one new variant. The old blocking `SlpDownloadModal` dialog became `SlpDownloadSnackbar`: a bottom-left cancellable snackbar that auto-dismisses on success and shows a Close button otherwise. It also gained retry management.
+The `replay-manager:` protocol handler already had `SlpDownloadStatus` and the `slp-download-status` channel. The Beamer queue emits the same statuses on the same channel, which is why it takes an `onStatus` callback. The status payload gained three optional fields and one new variant. The old blocking `SlpDownloadModal` dialog became `SlpDownloadSnackbar`: a bottom-left cancellable snackbar that auto-dismisses on success and shows a Close button otherwise. It also gained retry management.
 
 Four things change for a user who never touches a Beamer:
 
