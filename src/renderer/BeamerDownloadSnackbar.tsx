@@ -10,6 +10,8 @@ import {
 
 import { BeamerDownloadStatus } from '../common/types';
 
+const MAX_VISIBLE_SOURCES = 3;
+
 function LinearProgressWithLabel({ value }: { value: number }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', width: 300 }}>
@@ -42,6 +44,9 @@ export default function BeamerDownloadSnackbar({
   let content = null;
   if (status.status === 'downloading') {
     const { filesDone, totalFiles, attempt } = status;
+    const names = status.sources ?? [];
+    const visible = names.slice(0, MAX_VISIBLE_SOURCES).join(', ');
+    const overflow = names.length - MAX_VISIBLE_SOURCES;
     const counted =
       totalFiles === undefined || filesDone === undefined
         ? ''
@@ -51,7 +56,13 @@ export default function BeamerDownloadSnackbar({
         <Typography variant="subtitle2">Downloading SLP files...</Typography>
         <LinearProgressWithLabel value={status.progress} />
         <Typography variant="body2" color="text.secondary">
-          {`${status.source || status.currentFile}${counted}`}
+          {visible || status.currentFile}
+          {overflow > 0 && (
+            <Typography component="span" variant="body2" color="text.disabled">
+              {` + ${overflow} more`}
+            </Typography>
+          )}
+          {counted}
         </Typography>
         {attempt !== undefined && attempt > 1 && (
           <Typography variant="body2" color="text.secondary">

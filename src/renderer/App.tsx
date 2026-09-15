@@ -1012,7 +1012,13 @@ function Hello() {
         setDirType(newDirType);
         setSelectedBeamer(newDirType === 'beamer' ? newBeamerId : '');
         setWasDeleted(false);
-        refreshReplays(true);
+        if (newDisplay) {
+          refreshReplays(true);
+        } else {
+          setDirExists(false);
+          setGuideBackdropOpen(false);
+          setGuideState(GuideState.NONE);
+        }
         setEjected(false);
       }
     });

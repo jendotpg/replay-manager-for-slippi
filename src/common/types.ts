@@ -451,10 +451,9 @@ export type BeamerDownloadStatus =
   | { status: 'idle' }
   | {
       status: 'downloading';
-      slpUrls: string[];
       progress: number;
       currentFile: string;
-      source?: string;
+      sources: string[];
       filesDone?: number;
       totalFiles?: number;
       attempt?: number;

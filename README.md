@@ -11,17 +11,7 @@ TODO:
   - stop "Ports changed", "characters changed", "game started" from line breaking
     - honestly, don't bother showing "characters changed"! i don't think its helpful (we can add it back later. not worth taking out of the firmware.)
 
-- snackbar should update as the download queue does:
-
-  - show all beamer names for pending updates, not just the first one (adjust status bar whenever the download queue changes to represent progress across current total)
-    - you can elide down with "+ N more" in little gray text if there are too many
-  - make it less tall?
-
-- fake replay tool update:
-
-  - setting to announce game after a certain delay
-  - automatically populate replay index with at least "served game"
-
+- robustly handle multiple fake beamers on one pc? is this doable?
 - reflash all the beamers... ugh...
 - clean this whole thing up :3
 

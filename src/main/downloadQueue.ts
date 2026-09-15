@@ -14,33 +14,39 @@ type DownloadJob = {
   name: string;
   url: string;
   size: number; // -1 when unknown
-  batchId: string; // '' for background jobs
   source: string; // station label, for the snackbar
   priority: number;
+  batchNumber: number; // 0 for background jobs
   requeues: number;
+  attempt: number; 
+  written: number;
   availableAt: number;
   seq: number;
 };
 
 type Batch = {
-  id: string;
-  source: string;
-  slpUrls: string[];
-  totalFiles: number;
-  byBytes: boolean;
-  totalBytes: number;
-  bytesWritten: Map<string, number>;
-  filesDone: number;
-  completed: number;
-  failures: Map<string, string>;
-  highWater: number;
-  attempt: number;
+  id: number;
   resolve: () => void;
   settled: boolean;
-  cancelled: boolean;
 };
 
-type BackgroundJob = { dest: string; name: string; url: string; size: number };
+type BackgroundJob = {
+  dest: string;
+  name: string;
+  url: string;
+  size: number;
+  source: string;
+};
+
+type Wave = {
+  totalFiles: number;
+  doneFiles: number;
+  totalBytes: number;
+  doneBytes: number;
+  unknown: number;
+  failures: Map<string, string>; // station -> reason
+  cancelled: boolean;
+};
 
 export type DownloadQueueDeps = {
   onStatus: (status: BeamerDownloadStatus) => void;
@@ -52,7 +58,7 @@ export function createDownloadQueue({
   onFileComplete,
 }: DownloadQueueDeps) {
   const queue: DownloadJob[] = [];
-  const batches = new Map<string, Batch>();
+  const batches = new Map<number, Batch>();
   let active: {
     job: DownloadJob;
     controller: AbortController;
@@ -60,11 +66,18 @@ export function createDownloadQueue({
   } | null = null;
   let wakeTimer: NodeJS.Timeout | null = null;
   let seqCounter = 0;
+  let batchCounter = 0;
   let lastSentAt = 0;
+  let wave: Wave = {
+    totalFiles: 0,
+    doneFiles: 0,
+    totalBytes: 0,
+    doneBytes: 0,
+    unknown: 0,
+    failures: new Map(),
+    cancelled: false,
+  };
 
-  // drain, runJob and finishActive form one co-recursive cluster (a finished
-  // download drains the next, which runs the next job); there is no ordering
-  // that satisfies no-use-before-define for all three.
   /* eslint-disable no-use-before-define */
 
   const nextSeq = () => {
@@ -75,6 +88,8 @@ export function createDownloadQueue({
   const isQueuedOrActive = (dest: string, name: string) =>
     queue.some((job) => job.dest === dest && job.name === name) ||
     (active?.job.dest === dest && active?.job.name === name);
+
+  const idle = () => active === null && queue.length === 0;
 
   const clearWake = () => {
     if (wakeTimer) {
@@ -94,35 +109,89 @@ export function createDownloadQueue({
     );
   };
 
-  const sendBatch = (batch: Batch, currentFile: string, force = false) => {
+  const resetWave = () => {
+    wave = {
+      totalFiles: 0,
+      doneFiles: 0,
+      totalBytes: 0,
+      doneBytes: 0,
+      unknown: 0,
+      failures: new Map(),
+      cancelled: false,
+    };
+  };
+
+  const report = (force = false) => {
     const now = Date.now();
     if (!force && now - lastSentAt < STATUS_THROTTLE_MS) {
       return;
     }
+    if (idle()) {
+      return;
+    }
     lastSentAt = now;
-    let done = 0;
-    batch.bytesWritten.forEach((bytes) => {
-      done += bytes;
+
+    const sources: string[] = [];
+    const seen = new Set<string>();
+    if (active && active.job.source) {
+      seen.add(active.job.source);
+      sources.push(active.job.source);
+    }
+    queue.forEach((job) => {
+      if (job.source && !seen.has(job.source)) {
+        seen.add(job.source);
+        sources.push(job.source);
+      }
     });
-    const progress = batch.byBytes
-      ? (done / batch.totalBytes) * 100
-      : (batch.filesDone / batch.totalFiles) * 100;
-    batch.highWater = Math.max(batch.highWater, progress);
+
+    let progress = 0;
+    const activeBytes = active ? active.job.written : 0;
+    const byBytes = wave.unknown === 0 && wave.totalBytes > 0;
+    if (byBytes) {
+      progress = ((wave.doneBytes + activeBytes) / wave.totalBytes) * 100;
+    } else if (wave.totalFiles > 0) {
+      progress = (wave.doneFiles / wave.totalFiles) * 100;
+    }
+
     onStatus({
       status: 'downloading',
-      slpUrls: batch.slpUrls,
-      progress: batch.highWater,
-      currentFile,
-      source: batch.source,
-      filesDone: batch.filesDone,
-      totalFiles: batch.totalFiles,
-      attempt: batch.attempt,
+      progress,
+      currentFile: active?.job.name ?? '',
+      sources,
+      filesDone: wave.doneFiles,
+      totalFiles: wave.totalFiles,
+      attempt:
+        active && active.job.attempt > 1 ? active.job.attempt : undefined,
     });
   };
 
-  const outstanding = (batchId: string) =>
-    queue.some((job) => job.batchId === batchId) ||
-    active?.job.batchId === batchId;
+  const finishWave = () => {
+    if (!idle()) {
+      return;
+    }
+    if (wave.cancelled) {
+      onStatus({
+        status: 'cancelled',
+        filesDone: wave.doneFiles,
+        totalFiles: wave.totalFiles,
+      });
+    } else if (wave.failures.size > 0) {
+      onStatus({
+        status: 'error',
+        failedFiles: Array.from(
+          wave.failures,
+          ([source, reason]) => `${source} — ${reason}`,
+        ),
+      });
+    } else if (wave.totalFiles > 0) {
+      onStatus({ status: 'success' });
+    }
+    resetWave();
+  };
+
+  const outstanding = (batchNumber: number) =>
+    queue.some((job) => job.batchNumber === batchNumber) ||
+    active?.job.batchNumber === batchNumber;
 
   const finalizeIfDone = (batch: Batch) => {
     if (batch.settled || outstanding(batch.id)) {
@@ -130,30 +199,15 @@ export function createDownloadQueue({
     }
     batch.settled = true;
     batches.delete(batch.id);
-    if (batch.cancelled) {
-      onStatus({
-        status: 'cancelled',
-        filesDone: batch.completed,
-        totalFiles: batch.totalFiles,
-      });
-    } else if (batch.failures.size > 0) {
-      onStatus({
-        status: 'error',
-        failedFiles: Array.from(
-          batch.failures,
-          ([name, reason]) => `${name} — ${reason}`,
-        ),
-      });
-    } else {
-      onStatus({ status: 'success' });
-    }
     batch.resolve();
   };
 
   const failRestOfBatch = (batch: Batch, reason: string) => {
     for (let i = queue.length - 1; i >= 0; i -= 1) {
-      if (queue[i].batchId === batch.id) {
-        batch.failures.set(queue[i].name, reason);
+      if (queue[i].batchNumber === batch.id && queue[i].batchNumber > 0) {
+        wave.doneFiles += 1;
+        wave.doneBytes += Math.max(queue[i].size, 0);
+        wave.failures.set(queue[i].source || queue[i].name, reason);
         queue.splice(i, 1);
       }
     }
@@ -173,26 +227,25 @@ export function createDownloadQueue({
       finalizeIfDone(batch);
     }
     drain();
+    finishWave();
   };
 
   const runJob = (job: DownloadJob) => {
     const controller = new AbortController();
     active = { job, controller, reason: null };
-    const batch = job.batchId ? batches.get(job.batchId) : undefined;
+    const batch = job.batchNumber ? batches.get(job.batchNumber) : undefined;
 
-    if (batch) {
-      batch.attempt = 1;
-      sendBatch(batch, job.name, true);
-      partSize(job.dest, job.name)
-        .then((started) => {
-          if (batch && !batch.bytesWritten.has(job.name)) {
-            batch.bytesWritten.set(job.name, started);
-            sendBatch(batch, job.name);
-          }
-          return undefined;
-        })
-        .catch(() => {});
-    }
+    job.attempt = 1;
+    report(true);
+    partSize(job.dest, job.name)
+      .then((started) => {
+        if (active?.job === job && started > job.written) {
+          job.written = started;
+          report(true);
+        }
+        return undefined;
+      })
+      .catch(() => {});
 
     mkdir(job.dest, { recursive: true })
       .then(() =>
@@ -211,27 +264,19 @@ export function createDownloadQueue({
           expectedSize: job.size,
           signal: controller.signal,
           onChunk: (written) => {
-            if (batch) {
-              batch.bytesWritten.set(job.name, written);
-              sendBatch(batch, job.name);
-            }
+            job.written = written;
+            report();
           },
           onAttempt: (n) => {
-            if (batch) {
-              batch.attempt = n;
-              sendBatch(batch, job.name);
-            }
+            job.attempt = n;
+            report();
           },
         });
       })
       .then(() => {
-        if (batch) {
-          batch.bytesWritten.set(job.name, Math.max(job.size, 0));
-          batch.completed += 1;
-          batch.filesDone += 1;
-          batch.failures.delete(job.name);
-          sendBatch(batch, job.name, true);
-        }
+        wave.doneFiles += 1;
+        wave.doneBytes += Math.max(job.size, 0);
+        wave.failures.delete(job.source || job.name);
         onFileComplete(job.dest);
         finishActive(batch);
         return undefined;
@@ -246,6 +291,7 @@ export function createDownloadQueue({
           active = null;
           requeue(job, Date.now(), false);
           drain();
+          report();
           return;
         }
         const failure =
@@ -259,16 +305,16 @@ export function createDownloadQueue({
           job.requeues += 1;
           requeue(job, Date.now() + failure.retryAfterMs, true);
           drain();
+          report();
           return;
         }
-        if (batch) {
-          batch.failures.set(job.name, failure.message);
-          batch.filesDone += 1;
-          if (failure.unreachable) {
-            failRestOfBatch(batch, failure.message);
-          }
-          sendBatch(batch, job.name, true);
+        wave.doneFiles += 1;
+        wave.doneBytes += Math.max(job.size, 0);
+        wave.failures.set(job.source || job.name, failure.message);
+        if (failure.unreachable && batch) {
+          failRestOfBatch(batch, failure.message);
         }
+        report(true);
         finishActive(batch);
       });
   };
@@ -286,7 +332,10 @@ export function createDownloadQueue({
       }
       return;
     }
-    eligible.sort((a, b) => b.priority - a.priority || a.seq - b.seq);
+    eligible.sort(
+      (a, b) =>
+        b.priority - a.priority || b.batchNumber - a.batchNumber || a.seq - b.seq,
+    );
     const job = eligible[0];
     queue.splice(queue.indexOf(job), 1);
     clearWake();
@@ -294,44 +343,58 @@ export function createDownloadQueue({
   }
 
   const cancelForeground = () => {
+    let removed = false;
     for (let i = queue.length - 1; i >= 0; i -= 1) {
       if (queue[i].priority === FOREGROUND) {
-        const batch = batches.get(queue[i].batchId);
-        if (batch) {
-          batch.cancelled = true;
-        }
         queue.splice(i, 1);
+        removed = true;
       }
     }
     if (active && active.job.priority === FOREGROUND) {
-      const batch = batches.get(active.job.batchId);
-      if (batch) {
-        batch.cancelled = true;
-      }
       active.reason = 'cancel';
       active.controller.abort();
-    } else {
-      batches.forEach((batch) => {
-        if (batch.cancelled) {
-          finalizeIfDone(batch);
-        }
-      });
+      removed = true;
     }
+    // Every batch is a foreground batch: after its pending jobs are pulled,
+    // settle the ones that no longer have work. The aborted one settles in
+    // its own catch once the ABORT lands.
+    batches.forEach((batch) => {
+      if (!batch.settled && !outstanding(batch.id)) {
+        finalizeIfDone(batch);
+      }
+    });
+    if (removed) {
+      wave.cancelled = true;
+    }
+    report(true);
+    finishWave();
   };
 
   const enqueueBackground = (job: BackgroundJob) => {
     if (isQueuedOrActive(job.dest, job.name)) {
       return;
     }
+    wave.totalFiles += 1;
+    if (job.size >= 0) {
+      wave.totalBytes += Math.max(job.size, 0);
+    } else {
+      wave.unknown += 1;
+    }
     queue.push({
-      ...job,
-      batchId: '',
-      source: '',
+      dest: job.dest,
+      name: job.name,
+      url: job.url,
+      size: job.size,
+      source: job.source,
       priority: BACKGROUND,
+      batchNumber: 0,
       requeues: 0,
+      attempt: 1,
+      written: 0,
       availableAt: 0,
       seq: nextSeq(),
     });
+    report(true);
     drain();
   };
 
@@ -340,43 +403,24 @@ export function createDownloadQueue({
     files: BeamerFile[],
     source: string,
   ): Promise<void> => {
-    cancelForeground();
-
     const present = await Promise.all(
       files.map((file) => hasCompleteFile(dest, file)),
     );
     const missing = files.filter((file, i) => !present[i]);
 
     return new Promise<void>((resolve) => {
-      if (missing.length === 0) {
-        onStatus({ status: 'success' });
+      const pending = missing.filter(
+        (file) => !isQueuedOrActive(dest, file.name),
+      );
+      if (pending.length === 0) {
         resolve();
         return;
       }
-      const id = `fg-${nextSeq()}`;
-      const totalBytes = missing.reduce(
-        (sum, file) => sum + Math.max(file.size, 0),
-        0,
-      );
-      const batch: Batch = {
-        id,
-        source,
-        slpUrls: missing.map((file) => file.url),
-        totalFiles: missing.length,
-        byBytes: missing.every((file) => file.size >= 0) && totalBytes > 0,
-        totalBytes,
-        bytesWritten: new Map(),
-        filesDone: 0,
-        completed: 0,
-        failures: new Map(),
-        highWater: 0,
-        attempt: 1,
-        resolve,
-        settled: false,
-        cancelled: false,
-      };
-      batches.set(id, batch);
-      // Preempt a running background job so the foreground batch starts now.
+      wave.cancelled = false;
+      batchCounter += 1;
+      const batchNumber = batchCounter;
+      const batch: Batch = { id: batchNumber, resolve, settled: false };
+      batches.set(batchNumber, batch);
       if (
         active &&
         active.job.priority < FOREGROUND &&
@@ -385,20 +429,29 @@ export function createDownloadQueue({
         active.reason = 'preempt';
         active.controller.abort();
       }
-      missing.forEach((file) => {
+      pending.forEach((file) => {
+        wave.totalFiles += 1;
+        if (file.size >= 0) {
+          wave.totalBytes += Math.max(file.size, 0);
+        } else {
+          wave.unknown += 1;
+        }
         queue.push({
           dest,
           name: file.name,
           url: file.url,
           size: file.size,
-          batchId: id,
           source,
           priority: FOREGROUND,
+          batchNumber,
           requeues: 0,
+          attempt: 1,
+          written: 0,
           availableAt: 0,
           seq: nextSeq(),
         });
       });
+      report(true);
       drain();
     });
   };
@@ -406,6 +459,8 @@ export function createDownloadQueue({
   const clear = () => {
     queue.length = 0;
     clearWake();
+    resetWave();
+    lastSentAt = 0;
     if (active) {
       active.reason = 'cancel';
       active.controller.abort();

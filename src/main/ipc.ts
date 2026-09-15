@@ -604,7 +604,8 @@ export default function setupIPCs(
             dest: beamerDirFor(beamerFullPath, sub.origin, sub.stationId),
             name: event.replay.name,
             url: new URL(event.replay.url, sub.origin).toString(),
-            size: -1,
+            size: event.replay.size,
+            source: nameByBeamer.get(sub.stationId) ?? '',
           });
         } catch {
           // unparseable replay url - it'll get fetched on select
@@ -1112,7 +1113,12 @@ export default function setupIPCs(
   ipcMain.removeHandler('getCurrentReplays');
   ipcMain.handle('getCurrentReplays', async () => {
     if (replayDirs.length === 0 && !undoSrcFullPath) {
-      throw new Error();
+      replayLoadCount += 1;
+      return {
+        replays: [],
+        invalidReplays: [],
+        replayLoadCount,
+      };
     }
 
     const replayDir = undoSrcFullPath
