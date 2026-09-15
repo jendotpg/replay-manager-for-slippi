@@ -21,10 +21,10 @@ import {
   Typography,
 } from '@mui/material';
 import {
-  AddCircleOutline,
-  CheckCircle,
   DeleteForever,
   ErrorOutline,
+  NotificationsActive,
+  NotificationsNone,
   Refresh,
   Warning,
 } from '@mui/icons-material';
@@ -448,9 +448,12 @@ export default function BeamerDialog({
                 <TableCell>Replays</TableCell>
                 <TableCell>P1</TableCell>
                 <TableCell>P2</TableCell>
-                <TableCell>Ports changed</TableCell>
-                <TableCell>Characters changed</TableCell>
-                <TableCell>Game started</TableCell>
+                <TableCell style={{ whiteSpace: 'nowrap' }}>
+                  Ports changed
+                </TableCell>
+                <TableCell style={{ whiteSpace: 'nowrap' }}>
+                  Game started
+                </TableCell>
                 <TableCell />
                 <TableCell />
               </TableRow>
@@ -461,13 +464,13 @@ export default function BeamerDialog({
                   (a, b) => a.port - b.port,
                 );
                 let subscribeIcon = (
-                  <AddCircleOutline color="disabled" fontSize="small" />
+                  <NotificationsNone color="action" fontSize="small" />
                 );
                 if (subscribing === station.address) {
                   subscribeIcon = <CircularProgress size="20px" />;
                 } else if (station.subscribed) {
                   subscribeIcon = (
-                    <CheckCircle color="success" fontSize="small" />
+                    <NotificationsActive color="action" fontSize="small" />
                   );
                 }
                 const stationDetail = station.stationId || station.host;
@@ -486,27 +489,18 @@ export default function BeamerDialog({
                     style={{ cursor: busy ? 'default' : 'pointer' }}
                   >
                     <TableCell padding="checkbox">
-                      <Tooltip
-                        arrow
-                        title={
-                          station.subscribed
-                            ? 'Subscribed — new games download in the background'
-                            : 'Subscribe to download new games in the background'
-                        }
-                      >
-                        <span>
-                          <IconButton
-                            disabled={busy || subscribing === station.address}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              toggleSubscribe(station);
-                            }}
-                            size="small"
-                          >
-                            {subscribeIcon}
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      <span>
+                        <IconButton
+                          disabled={busy || subscribing === station.address}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleSubscribe(station);
+                          }}
+                          size="small"
+                        >
+                          {subscribeIcon}
+                        </IconButton>
+                      </span>
                     </TableCell>
                     <TableCell>
                       <Stack alignItems="center" direction="row" gap="8px">
@@ -528,14 +522,22 @@ export default function BeamerDialog({
                       <LiveLight station={station} />
                     </TableCell>
                     <TableCell>
-                      <Typography color="text.secondary" variant="body2">
+                      <Typography
+                        color="text.secondary"
+                        style={{ whiteSpace: 'nowrap' }}
+                        variant="body2"
+                      >
                         {formatReplays(station)}
                       </Typography>
                     </TableCell>
                     <PortCell game={station.game} port={ports[0]} />
                     <PortCell game={station.game} port={ports[1]} />
                     <TableCell>
-                      <Typography color="text.secondary" variant="body2">
+                      <Typography
+                        color="text.secondary"
+                        style={{ whiteSpace: 'nowrap' }}
+                        variant="body2"
+                      >
                         {formatSecs(
                           liveSecs(
                             `${station.address}:ports`,
@@ -545,17 +547,11 @@ export default function BeamerDialog({
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Typography color="text.secondary" variant="body2">
-                        {formatSecs(
-                          liveSecs(
-                            `${station.address}:chars`,
-                            station.secsSinceCharacterChange,
-                          ),
-                        )}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography color="text.secondary" variant="body2">
+                      <Typography
+                        color="text.secondary"
+                        style={{ whiteSpace: 'nowrap' }}
+                        variant="body2"
+                      >
                         {formatSecs(
                           liveSecs(
                             `${station.address}:game`,

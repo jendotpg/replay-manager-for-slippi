@@ -145,7 +145,7 @@ There's no authentication at all - if you can reach the beamer, you can do anyth
 
 No new dependencies.
 
-Background network traffic only exists if any beamers are subscribed to. Subscribing to a station (the toggle on the left of its fleet row) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive. The mDNS browser and a 10 s fleet poll run only while the fleet dialog is open - the multicast listener and subscription pulls continue even while the dialog is closed. Subscriptions are session only. A TO with no Beamer on the network sees no background work.
+Background network traffic only exists if any beamers are subscribed to. Subscribing to a station (in bulk via settings or individually in the fleet view) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive. The mDNS browser and a 10 s fleet poll run only while the fleet dialog is open - the multicast listener and subscription pulls continue even while the dialog is closed. A TO with no Beamer on the network sees no background work.
 
 Four things change for a user who never touches a Beamer:
 

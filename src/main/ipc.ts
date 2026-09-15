@@ -191,6 +191,7 @@ export default function setupIPCs(
   eventEmitter: EventEmitter,
 ): void {
   const store = new Store<{
+    autoSubscribeBeamers: boolean;
     copySettings: CopySettings;
     hideCopyButton: boolean;
     offlineModePassword: string;
@@ -473,6 +474,29 @@ export default function setupIPCs(
       (entry) => entry.stationId && entry.stationId === station.stationId,
     );
 
+  const autoUnsubscribed = new global.Set<string>();
+  let autoSubscribeBeamers = store.get('autoSubscribeBeamers', true);
+
+  function subscribeBeamer(address: string) {
+    const station = beamerStations.get(address);
+    const origin = toBeamerOrigin(address);
+    const stationId = station?.stationId ?? '';
+    subscribedBeamers.set(address, { stationId, origin });
+    if (stationId) {
+      rememberBeamer(
+        stationId,
+        origin,
+        station?.stationName || beamerName(origin, stationId),
+      );
+    }
+  }
+
+  const autoSubscribeCandidate = (station: BeamerStation) =>
+    autoSubscribeBeamers &&
+    station.reported &&
+    !subscribedBeamers.has(station.address) &&
+    !autoUnsubscribed.has(station.stationId);
+
   const listedBeamerStations = () =>
     Array.from(beamerStations.values())
       .filter((station) => station.reported)
@@ -529,6 +553,10 @@ export default function setupIPCs(
         ? stationFromStatus(base, result.body)
         : unreportedStation(base);
     beamerStations.set(base.address, station);
+
+    if (autoSubscribeCandidate(station)) {
+      subscribeBeamer(station.address);
+    }
 
     try {
       await pruneStaleReplaysFor(station);
@@ -864,30 +892,47 @@ export default function setupIPCs(
     };
   });
 
+  function setBeamerSubscription(address: string, subscribed: boolean) {
+    if (subscribed) {
+      subscribeBeamer(address);
+    } else {
+      const station = beamerStations.get(address);
+      if (station?.stationId) {
+        autoUnsubscribed.add(station.stationId);
+      }
+      subscribedBeamers.delete(address);
+      maybeStopBeamerEvents();
+    }
+  }
+
   ipcMain.removeHandler('setBeamerSubscribed');
   ipcMain.handle(
     'setBeamerSubscribed',
     (event, address: string, subscribed: boolean) => {
+      setBeamerSubscription(address, subscribed);
       if (subscribed) {
-        const station = beamerStations.get(address);
-        const origin = toBeamerOrigin(address);
-        const stationId = station?.stationId ?? '';
-        subscribedBeamers.set(address, { stationId, origin });
-        if (stationId) {
-          rememberBeamer(
-            stationId,
-            origin,
-            station?.stationName || beamerName(origin, stationId),
-          );
-        }
         ensureBeamerEvents();
-      } else {
-        subscribedBeamers.delete(address);
-        maybeStopBeamerEvents();
       }
       sendBeamerFleet();
     },
   );
+
+  ipcMain.removeHandler('getBeamersAutoSubscribe');
+  ipcMain.handle('getBeamersAutoSubscribe', () => autoSubscribeBeamers);
+
+  ipcMain.removeHandler('setBeamersAutoSubscribe');
+  ipcMain.handle('setBeamersAutoSubscribe', (event, on: boolean) => {
+    autoSubscribeBeamers = on;
+    store.set('autoSubscribeBeamers', on);
+    if (on) {
+      const swept = listedBeamerStations().filter(autoSubscribeCandidate);
+      swept.forEach((station) => subscribeBeamer(station.address));
+      if (swept.length > 0) {
+        ensureBeamerEvents();
+        sendBeamerFleet();
+      }
+    }
+  });
 
   ipcMain.removeHandler('refreshBeamerStatus');
   ipcMain.handle('refreshBeamerStatus', async (event, address: string) => {

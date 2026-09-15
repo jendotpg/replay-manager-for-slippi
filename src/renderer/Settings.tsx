@@ -155,6 +155,13 @@ export default function Settings({
     })();
   }, []);
 
+  const [beamersAutoSubscribe, setBeamersAutoSubscribe] = useState(true);
+  useEffect(() => {
+    (async () => {
+      setBeamersAutoSubscribe(await window.electron.getBeamersAutoSubscribe());
+    })();
+  }, []);
+
   const [choosingTrashDir, setChoosingTrashDir] = useState(false);
 
   const [replayCache, setReplayCache] = useState({ files: 0, bytes: 0 });
@@ -482,6 +489,15 @@ export default function Settings({
                 Delete cached replays
               </Button>
             </Stack>
+            <LabeledCheckbox
+              checked={beamersAutoSubscribe}
+              label="Auto-subscribe to all Beamers"
+              labelPlacement="end"
+              set={async (checked) => {
+                await window.electron.setBeamersAutoSubscribe(checked);
+                setBeamersAutoSubscribe(checked);
+              }}
+            />
             <LabeledCheckbox
               checked={vlerkMode}
               label={
