@@ -51,7 +51,7 @@ export default function SlpDownloadSnackbar({
         <Typography variant="subtitle2">Downloading SLP files...</Typography>
         <LinearProgressWithLabel value={status.progress} />
         <Typography variant="body2" color="text.secondary">
-          {`Current file: ${status.currentFile}${counted}`}
+          {`${status.source || status.currentFile}${counted}`}
         </Typography>
         {attempt !== undefined && attempt > 1 && (
           <Typography variant="body2" color="text.secondary">

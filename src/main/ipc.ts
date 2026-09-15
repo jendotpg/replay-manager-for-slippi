@@ -232,6 +232,14 @@ export default function setupIPCs(
     nameByBeamer.set(beamerId, name);
   }
 
+  const announceIfActive = (dest: string) => {
+    const top =
+      replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
+    if (top && top.dir === dest) {
+      announceReplayDir();
+    }
+  };
+
   function addReplayDir(entry: ReplayDir) {
     replayDirs.push(entry);
     announceReplayDir();
@@ -245,14 +253,59 @@ export default function setupIPCs(
   let slpDownloadStatus: SlpDownloadStatus = { status: 'idle' };
 
   let slpDownload: AbortController | null = null;
+
+  type PendingPull = { dest: string; name: string; url: string };
+  const pendingPulls: PendingPull[] = [];
+  let bgPull: AbortController | null = null;
+  let bgPulling = false;
+
+  const drainPulls = () => {
+    if (bgPulling || slpDownload || pendingPulls.length === 0) {
+      return;
+    }
+    const job = pendingPulls[0];
+    bgPulling = true;
+    bgPull = new AbortController();
+    (async () => {
+      try {
+        await pullFromBeamer(
+          job.dest,
+          [{ name: job.name, url: job.url, size: -1 }],
+          () => {},
+          bgPull!.signal,
+        );
+      } catch {
+        // oh well - will be pulled manually on select.
+      } finally {
+        bgPulling = false;
+        bgPull = null;
+        if (!slpDownload) {
+          pendingPulls.shift();
+          announceIfActive(job.dest);
+        }
+        drainPulls();
+      }
+    })();
+  };
+
+  const enqueuePull = (job: PendingPull) => {
+    if (pendingPulls.some((p) => p.dest === job.dest && p.name === job.name)) {
+      return;
+    }
+    pendingPulls.push(job);
+    drainPulls();
+  };
+
   const startSlpDownload = () => {
     slpDownload?.abort();
     slpDownload = new AbortController();
+    bgPull?.abort();
     return slpDownload.signal;
   };
   const endSlpDownload = (signal: AbortSignal) => {
     if (slpDownload?.signal === signal) {
       slpDownload = null;
+      drainPulls();
     }
   };
 
@@ -263,12 +316,21 @@ export default function setupIPCs(
     const total = slpUrls.length;
     let completed = 0;
 
+    // A deeplink has no friendly name; the origin is the most useful label.
+    let source = '';
+    try {
+      source = new URL(slpUrls[0]).origin;
+    } catch {
+      // leave unset; the snackbar falls back to the filename
+    }
+
     const send = (fileName: string) => {
       slpDownloadStatus = {
         status: 'downloading',
         slpUrls,
         progress: (completed / total) * 100,
         currentFile: fileName,
+        source,
         filesDone: completed,
         totalFiles: total,
       };
@@ -314,6 +376,7 @@ export default function setupIPCs(
       slpUrls,
       progress: 100,
       currentFile: '',
+      source,
       filesDone: total,
       totalFiles: total,
     };
@@ -472,6 +535,24 @@ export default function setupIPCs(
     mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
   };
 
+  const beamerOnStatus = (source: string, dest?: string) => {
+    let lastFilesDone = 0;
+    return (status: SlpDownloadStatus) => {
+      sendBeamerDownloadStatus(
+        status.status === 'downloading' ? { ...status, source } : status,
+      );
+      if (
+        dest &&
+        status.status === 'downloading' &&
+        typeof status.filesDone === 'number' &&
+        status.filesDone > lastFilesDone
+      ) {
+        lastFilesDone = status.filesDone;
+        announceIfActive(dest);
+      }
+    };
+  };
+
   ipcMain.removeHandler('cancelSlpDownload');
   ipcMain.handle('cancelSlpDownload', () => {
     slpDownload?.abort();
@@ -482,6 +563,20 @@ export default function setupIPCs(
   let beamerPollTimer: NodeJS.Timeout | null = null;
   let beamerFleetError = '';
 
+  const subscribedBeamers = new Map<
+    string,
+    { stationId: string; origin: string }
+  >();
+  const isSubscribed = (
+    station: Pick<BeamerStation, 'address' | 'stationId'>,
+  ) =>
+    subscribedBeamers.has(station.address) ||
+    Array.from(subscribedBeamers.values()).some(
+      (entry) => entry.stationId && entry.stationId === station.stationId,
+    );
+
+  let beamerAutoSubscribe = store.get('beamerAutoSubscribe', true) as boolean;
+
   const listedBeamerStations = () =>
     Array.from(beamerStations.values())
       .filter((station) => station.reported)
@@ -489,7 +584,8 @@ export default function setupIPCs(
         (a.stationName || a.stationId || a.address).localeCompare(
           b.stationName || b.stationId || b.address,
         ),
-      );
+      )
+      .map((station) => ({ ...station, subscribed: isSubscribed(station) }));
 
   const sendBeamerFleet = () => {
     const fleet: BeamerFleet = {
@@ -593,11 +689,31 @@ export default function setupIPCs(
     }
   };
 
+  const subscriptionForEvent = (fromAddress: string, stationId: string) =>
+    subscribedBeamers.get(fromAddress) ??
+    Array.from(subscribedBeamers.values()).find(
+      (entry) => entry.stationId && entry.stationId === stationId,
+    );
+
   const onBeamerEvent = (
     event: Omit<BeamerEvent, 'origin'>,
     fromAddress: string,
   ) => {
     refreshStationForEvent(fromAddress, event.stationId).catch(() => {});
+    if (event.event === 'game_finished') {
+      const sub = subscriptionForEvent(fromAddress, event.stationId);
+      if (sub) {
+        try {
+          enqueuePull({
+            dest: beamerDirFor(beamerFullPath, sub.origin, sub.stationId),
+            name: event.replay.name,
+            url: new URL(event.replay.url, sub.origin).toString(),
+          });
+        } catch {
+          // unparseable replay url - it'll get fetched on select
+        }
+      }
+    }
     const forwarded: BeamerEvent = {
       ...event,
       origin: toBeamerOrigin(fromAddress),
@@ -618,7 +734,12 @@ export default function setupIPCs(
   };
 
   const maybeStopBeamerEvents = () => {
-    if (beamerEvents && !beamerBrowse && !beamerSelected()) {
+    if (
+      beamerEvents &&
+      !beamerBrowse &&
+      !beamerSelected() &&
+      subscribedBeamers.size === 0
+    ) {
       beamerEvents.stop();
       beamerEvents = null;
     }
@@ -667,6 +788,10 @@ export default function setupIPCs(
       beamerId: stationId,
     });
     ensureBeamerEvents();
+    if (beamerAutoSubscribe) {
+      subscribedBeamers.set(addressOrHost, { stationId, origin });
+      sendBeamerFleet();
+    }
 
     const signal = startSlpDownload();
     (async () => {
@@ -674,7 +799,7 @@ export default function setupIPCs(
         await pullFromBeamer(
           dest,
           files.slice(0, maxGamesFromIndex),
-          sendBeamerDownloadStatus,
+          beamerOnStatus(label, dest),
           signal,
         );
       } finally {
@@ -717,12 +842,13 @@ export default function setupIPCs(
       await pullFromBeamer(
         dir,
         files.slice(0, maxGamesFromIndex),
-        sendBeamerDownloadStatus,
+        beamerOnStatus(nameByBeamer.get(beamerId) ?? beamerId, dir),
         signal,
       );
     } finally {
       endSlpDownload(signal);
     }
+    announceIfActive(dir);
   });
 
   ipcMain.removeHandler('getNextBeamerReplay');
@@ -762,10 +888,16 @@ export default function setupIPCs(
 
       const signal = startSlpDownload();
       try {
-        await pullFromBeamer(dir, [next], sendBeamerDownloadStatus, signal);
+        await pullFromBeamer(
+          dir,
+          [next],
+          beamerOnStatus(nameByBeamer.get(beamerId) ?? beamerId, dir),
+          signal,
+        );
       } finally {
         endSlpDownload(signal);
       }
+      announceIfActive(dir);
     },
   );
 
@@ -854,6 +986,39 @@ export default function setupIPCs(
       browsing: beamerBrowse !== null,
       error: beamerFleetError,
     };
+  });
+
+  ipcMain.removeHandler('setBeamerSubscribed');
+  ipcMain.handle(
+    'setBeamerSubscribed',
+    (event, address: string, subscribed: boolean) => {
+      if (subscribed) {
+        const station = beamerStations.get(address);
+        const origin = toBeamerOrigin(address);
+        const stationId = station?.stationId ?? '';
+        subscribedBeamers.set(address, { stationId, origin });
+        if (stationId) {
+          rememberBeamer(
+            stationId,
+            origin,
+            station?.stationName || beamerName(origin, stationId),
+          );
+        }
+        ensureBeamerEvents();
+      } else {
+        subscribedBeamers.delete(address);
+        maybeStopBeamerEvents();
+      }
+      sendBeamerFleet();
+    },
+  );
+
+  ipcMain.removeHandler('getBeamerAutoSubscribe');
+  ipcMain.handle('getBeamerAutoSubscribe', () => beamerAutoSubscribe);
+  ipcMain.removeHandler('setBeamerAutoSubscribe');
+  ipcMain.handle('setBeamerAutoSubscribe', (event, value: boolean) => {
+    beamerAutoSubscribe = value;
+    store.set('beamerAutoSubscribe', value);
   });
 
   ipcMain.removeHandler('refreshBeamerStatus');

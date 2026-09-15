@@ -64,6 +64,8 @@ export default function Settings({
   setVlerkMode,
   guidedMode,
   setGuidedMode,
+  beamerAutoSubscribe,
+  setBeamerAutoSubscribe,
   smuggleCostumeIndex,
   setSmuggleCostumeIndex,
   useLAN,
@@ -90,6 +92,8 @@ export default function Settings({
   setVlerkMode: (vlerkMode: boolean) => void;
   guidedMode: boolean;
   setGuidedMode: (guidedMode: boolean) => void;
+  beamerAutoSubscribe: boolean;
+  setBeamerAutoSubscribe: (beamerAutoSubscribe: boolean) => void;
   smuggleCostumeIndex: boolean;
   setSmuggleCostumeIndex: (smuggleCostumeIndex: boolean) => void;
   useLAN: boolean;
@@ -482,6 +486,15 @@ export default function Settings({
                 Delete cached replays
               </Button>
             </Stack>
+            <LabeledCheckbox
+              checked={beamerAutoSubscribe}
+              label="Auto-subscribe to Beamers on use"
+              labelPlacement="end"
+              set={async (checked) => {
+                await window.electron.setBeamerAutoSubscribe(checked);
+                setBeamerAutoSubscribe(checked);
+              }}
+            />
             <LabeledCheckbox
               checked={vlerkMode}
               label={

@@ -21,6 +21,8 @@ import {
   Typography,
 } from '@mui/material';
 import {
+  AddCircleOutline,
+  CheckCircle,
   DeleteForever,
   ErrorOutline,
   Refresh,
@@ -85,71 +87,44 @@ function StationsTooltip({
   );
 }
 
-function HealthIcon({ station }: { station: BeamerStation }) {
-  if (station.health !== 'warn' && station.health !== 'error') {
-    return null;
-  }
-  const icon =
-    station.health === 'error' ? (
-      <ErrorOutline color="error" fontSize="small" />
-    ) : (
-      <Warning color="warning" fontSize="small" />
-    );
-  const warnings = warningsFor(station);
-  const title = warnings || (station.health === 'error' ? 'ERROR' : '');
-  return title ? (
-    <Tooltip arrow title={title}>
-      {icon}
-    </Tooltip>
-  ) : (
-    icon
-  );
-}
-
-const LIVE_DOT = {
-  live: { color: '#31d158', title: 'Game in progress' },
-  idle: { color: '#14532d', title: 'No game in progress' },
-  down: { color: '#f04438', title: 'ERROR' },
-};
-
 const MAX_GAMES_FROM_INDEX = 16; // NUM-REPLAYS-SERVED ceiling
 
 const DOWN_WARNINGS = ['DRIVE FULL', 'NO WII']; // udate if more "can't write" warnings are added...
 
-function LiveDot({ station }: { station: BeamerStation }) {
-  const down = station.warnings.filter((warning) =>
-    DOWN_WARNINGS.includes(warning),
-  );
-  let state: keyof typeof LIVE_DOT = 'idle';
-  if (station.health === 'error' || down.length > 0) {
-    state = 'down';
-  } else if (station.game?.live) {
-    state = 'live';
-  }
-  const { color } = LIVE_DOT[state];
+const HEALTH_COLOR: Record<BeamerStation['health'], string> = {
+  ok: '#31d158',
+  starting: '#8a8a8e',
+  warn: '#f5a623',
+  error: '#f04438',
+  unknown: '#8a8a8e',
+};
+
+function LiveLight({ station }: { station: BeamerStation }) {
+  const down =
+    station.health === 'error' ||
+    station.warnings.some((warning) => DOWN_WARNINGS.includes(warning));
+  const color = down ? HEALTH_COLOR.error : HEALTH_COLOR[station.health];
+  const live = Boolean(station.game?.live);
   const dot = (
     <span
       style={{
         backgroundColor: color,
         borderRadius: '50%',
-        boxShadow: state === 'idle' ? 'none' : `0 0 6px ${color}`,
+        boxShadow: live ? `0 0 6px ${color}` : 'none',
         display: 'inline-block',
         height: '10px',
         width: '10px',
       }}
     />
   );
-  if (state !== 'down') {
-    return dot;
-  }
   const title =
-    station.health === 'error'
-      ? warningsFor(station) || LIVE_DOT.down.title
-      : down.join(', ');
-  return (
+    warningsFor(station) || (station.health === 'error' ? 'ERROR' : '');
+  return title ? (
     <Tooltip arrow title={title}>
       {dot}
     </Tooltip>
+  ) : (
+    dot
   );
 }
 
@@ -198,6 +173,7 @@ export default function BeamerDialog({
   const [fleet, setFleet] = useState(EMPTY_BEAMER_FLEET);
   const [copying, setCopying] = useState('');
   const [refreshing, setRefreshing] = useState('');
+  const [subscribing, setSubscribing] = useState('');
   const [confirmingReset, setConfirmingReset] = useState<
     BeamerStation | 'all' | null
   >(null);
@@ -264,6 +240,21 @@ export default function BeamerDialog({
       setError(e instanceof Error ? e.message : e);
     } finally {
       setRefreshing('');
+    }
+  };
+
+  const toggleSubscribe = async (station: BeamerStation) => {
+    setSubscribing(station.address);
+    setError('');
+    try {
+      await window.electron.setBeamerSubscribed(
+        station.address,
+        !station.subscribed,
+      );
+    } catch (e: any) {
+      setError(e instanceof Error ? e.message : e);
+    } finally {
+      setSubscribing('');
     }
   };
 
@@ -469,6 +460,20 @@ export default function BeamerDialog({
                 const ports = [...(station.game?.ports ?? [])].sort(
                   (a, b) => a.port - b.port,
                 );
+                let subscribeIcon = (
+                  <AddCircleOutline color="disabled" fontSize="small" />
+                );
+                if (subscribing === station.address) {
+                  subscribeIcon = <CircularProgress size="20px" />;
+                } else if (station.subscribed) {
+                  subscribeIcon = (
+                    <CheckCircle color="success" fontSize="small" />
+                  );
+                }
+                const stationDetail = station.stationId || station.host;
+                const stationTitle = stationDetail
+                  ? `${labelFor(station)} · ${stationDetail}`
+                  : labelFor(station);
                 return (
                   <TableRow
                     hover
@@ -480,16 +485,37 @@ export default function BeamerDialog({
                     }}
                     style={{ cursor: busy ? 'default' : 'pointer' }}
                   >
-                    <TableCell>
-                      <HealthIcon station={station} />
+                    <TableCell padding="checkbox">
+                      <Tooltip
+                        arrow
+                        title={
+                          station.subscribed
+                            ? 'Subscribed — new games download in the background'
+                            : 'Subscribe to download new games in the background'
+                        }
+                      >
+                        <span>
+                          <IconButton
+                            disabled={busy || subscribing === station.address}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleSubscribe(station);
+                            }}
+                            size="small"
+                          >
+                            {subscribeIcon}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                     </TableCell>
                     <TableCell>
                       <Stack alignItems="center" direction="row" gap="8px">
-                        <Tooltip
-                          arrow
-                          title={station.stationId || station.host}
-                        >
-                          <Typography variant="body2">
+                        <Tooltip arrow title={stationTitle}>
+                          <Typography
+                            noWrap
+                            variant="body2"
+                            sx={{ maxWidth: 220 }}
+                          >
                             {labelFor(station)}
                           </Typography>
                         </Tooltip>
@@ -499,7 +525,7 @@ export default function BeamerDialog({
                       </Stack>
                     </TableCell>
                     <TableCell>
-                      <LiveDot station={station} />
+                      <LiveLight station={station} />
                     </TableCell>
                     <TableCell>
                       <Typography color="text.secondary" variant="body2">

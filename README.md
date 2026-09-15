@@ -4,16 +4,10 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-- beamer subscription model
-
-  - in fleet view, subscribe button on the left of each beamer replacing the current "error"/"warning" sign. just make the light cover that (red/amber/green, lit for live). auto-subscribe when a beamer is selected if the settings say so!
-  - settings option for "beamer auto-subscribe" - sometimes useful, sometimes not!
-  - update "non-changes to replay manager" section - now there Are background downloads...
-
+- figure out why first download never fails and second more or less always does?
 - clean this whole thing up :3
 
   - code cleanliness
-  - stop wrapping beamer names
 
 - actually use this in tournament a few times:
 
@@ -143,7 +137,7 @@ There's no authentication at all - if you can reach the beamer, you can do anyth
 
 No new dependencies.
 
-No background network traffic. The mDNS browser and the 10 s fleet poll run only while the dialog is open. A TO who never opens it never sees a multicast packet.
+Background network traffic exists if any beamers are subscribed to. Subscribing to a station (the toggle on the left of its fleet row) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive. The mDNS browser and a 10 s fleet poll run only while the fleet dialog is open - the multicast listener and subscription pulls continue even while the dialog is closed. Background pulls always yield to a foreground one — catching up the Beamer you are viewing, or a manual refresh, comes first. Subscriptions are session only. A TO with no Beamer on the network sees no background work.
 
 The `replay-manager:` protocol handler already had `SlpDownloadStatus` and the `slp-download-status` channel. The Beamer pull emits the same statuses on the same channel. `pullFromBeamer` takes an `onStatus` callback for exactly this reason. The status payload gained three optional fields and one new variant. The old blocking `SlpDownloadModal` dialog became `SlpDownloadSnackbar`: a bottom-left cancellable snackbar that auto-dismisses on success and shows a Close button otherwise. It also gained retry management.
 
@@ -170,8 +164,8 @@ The game payload isn't canned: `--game` is peeked out of a real `.slp` by a port
 
 The flags that reproduce states the app has to handle:
 
-- `--unhealthy` -> `health: "error"`, which should show the red warning icon on the row while still allowing a copy.
-- `--warn "DRIVE FILLING,NO WII"` -> `health: "warn"` with those labels, which should show the amber icon and the labels in its tooltip.
+- `--unhealthy` -> `health: "error"`, which should turn the row's Live light red while still allowing a copy.
+- `--warn "DRIVE FILLING,NO WII"` -> `health: "warn"` with those labels, which should turn the Live light amber and show the labels in its tooltip (a "can't write" warning like `DRIVE FULL` / `NO WII` reads as red).
 - `--unreported` -> `503` on `GET /status`, which should drop the station off the list rather than raising an error - `listedBeamerStations` only lists stations that have reported.
 - `--cap` / `--served` -> the `replay_cap` the station reports and how many replays it publishes, for the `17/512 replays` line.
 

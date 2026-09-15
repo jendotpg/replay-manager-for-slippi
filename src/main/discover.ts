@@ -94,6 +94,7 @@ export function stationFromStatus(
     secsSinceGameStart: asSecs(status.secs_since_game_start),
     reported: true,
     game: asGame(status.game),
+    subscribed: false,
   };
 }
 
@@ -116,6 +117,7 @@ export function unreportedStation(
     secsSinceGameStart: null,
     reported: false,
     game: null,
+    subscribed: false,
   };
 }
 
