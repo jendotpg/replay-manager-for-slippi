@@ -51,10 +51,6 @@ const electronHandler = {
     ipcRenderer.invoke('selectBeamer', addressOrHost),
   setBeamerSubscribed: (address: string, subscribed: boolean): Promise<void> =>
     ipcRenderer.invoke('setBeamerSubscribed', address, subscribed),
-  getBeamerAutoSubscribe: (): Promise<boolean> =>
-    ipcRenderer.invoke('getBeamerAutoSubscribe'),
-  setBeamerAutoSubscribe: (value: boolean): Promise<void> =>
-    ipcRenderer.invoke('setBeamerAutoSubscribe', value),
   refreshFromBeamer: (beamerId: string): Promise<void> =>
     ipcRenderer.invoke('refreshFromBeamer', beamerId),
   cancelSlpDownload: (): Promise<void> =>

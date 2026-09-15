@@ -10,7 +10,6 @@ TODO:
   - stop replay count from line breaking (its capped at "1024/1024" anyway LOL)
   - stop "Ports changed", "characters changed", "game started" from eliding
 
-- remove "auto-subscribe on select" setting (and stop doing it). its a stupid design. people should just subscribe to stations.
 - remove the 500ms delay - root cause fixed!
 - reflash all the beamers... ugh...
 - clean this whole thing up :3

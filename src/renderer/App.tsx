@@ -247,7 +247,6 @@ function Hello() {
   const [vlerkModeFilterLastIndex, setVlerkModeFilterLastIndex] = useState(0);
   const [vlerkModeFilterNotFound, setVlerkModeFilterNotFound] = useState(false);
   const [guidedMode, setGuidedMode] = useState(false);
-  const [beamerAutoSubscribe, setBeamerAutoSubscribe] = useState(true);
   const [fileNameFormat, setFileNameFormat] = useState('');
   const [folderNameFormat, setFolderNameFormat] = useState('');
   const [smuggleCostumeIndex, setSmuggleCostumeIndex] = useState(false);
@@ -365,8 +364,6 @@ function Hello() {
       const enforcerSettingPromise = window.electron.getEnforcerSetting();
       const vlerkModePromise = window.electron.getVlerkMode();
       const guidedModePromise = window.electron.getGuidedMode();
-      const beamerAutoSubscribePromise =
-        window.electron.getBeamerAutoSubscribe();
       const fileNameFormatPromise = window.electron.getFileNameFormat();
       const folderNameFormatPromise = window.electron.getFolderNameFormat();
       const smuggleCostumeIndexPromise =
@@ -407,7 +404,6 @@ function Hello() {
       setFolderNameFormat(await folderNameFormatPromise);
       setVlerkMode(await vlerkModePromise);
       setGuidedMode(await guidedModePromise);
-      setBeamerAutoSubscribe(await beamerAutoSubscribePromise);
       setSmuggleCostumeIndex(await smuggleCostumeIndexPromise);
       setHideCopyButton(await hideCopyButtonPromise);
       setCopySettings(await copySettingsPromise);
@@ -3399,8 +3395,6 @@ function Hello() {
         setVlerkMode={setVlerkMode}
         guidedMode={guidedMode}
         setGuidedMode={setGuidedMode}
-        beamerAutoSubscribe={beamerAutoSubscribe}
-        setBeamerAutoSubscribe={setBeamerAutoSubscribe}
         smuggleCostumeIndex={smuggleCostumeIndex}
         setSmuggleCostumeIndex={setSmuggleCostumeIndex}
         fileNameFormat={fileNameFormat}

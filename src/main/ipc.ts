@@ -519,8 +519,6 @@ export default function setupIPCs(
       (entry) => entry.stationId && entry.stationId === station.stationId,
     );
 
-  let beamerAutoSubscribe = store.get('beamerAutoSubscribe', true) as boolean;
-
   const listedBeamerStations = () =>
     Array.from(beamerStations.values())
       .filter((station) => station.reported)
@@ -733,10 +731,6 @@ export default function setupIPCs(
       beamerId: stationId,
     });
     ensureBeamerEvents();
-    if (beamerAutoSubscribe) {
-      subscribedBeamers.set(addressOrHost, { stationId, origin });
-      sendBeamerFleet();
-    }
 
     downloadQueue
       .enqueueForegroundBatch(dest, files.slice(0, maxGamesFromIndex), label)
@@ -939,14 +933,6 @@ export default function setupIPCs(
       sendBeamerFleet();
     },
   );
-
-  ipcMain.removeHandler('getBeamerAutoSubscribe');
-  ipcMain.handle('getBeamerAutoSubscribe', () => beamerAutoSubscribe);
-  ipcMain.removeHandler('setBeamerAutoSubscribe');
-  ipcMain.handle('setBeamerAutoSubscribe', (event, value: boolean) => {
-    beamerAutoSubscribe = value;
-    store.set('beamerAutoSubscribe', value);
-  });
 
   ipcMain.removeHandler('refreshBeamerStatus');
   ipcMain.handle('refreshBeamerStatus', async (event, address: string) => {
