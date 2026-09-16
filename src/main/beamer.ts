@@ -1221,13 +1221,25 @@ const sendBeamerFleet = () => {
   deps.sendFleet(buildBeamerFleet());
 };
 
-const pruneStaleReplaysFor = async (origin: string, beamer: Beamer) => {
+const pruneStaleReplaysFor = async (
+  origin: string,
+  beamer: Beamer,
+  previousCount?: number,
+) => {
   if (!beamer.beamerId) {
     return;
   }
   const dest = beamerDirFor(deps.beamerFullPath, origin, beamer.beamerId);
   const cached = await listCachedReplays(dest);
   if (cached.length === 0) {
+    return;
+  }
+
+  if (
+    previousCount != null &&
+    beamer.replayCount != null &&
+    beamer.replayCount === previousCount
+  ) {
     return;
   }
 
@@ -1259,6 +1271,9 @@ const refreshBeamer = async (base: BeamerBase) => {
       : unreportedBeamer(base);
 
   const key = beamer.beamerId || base.address; // key by address until uuid is reported
+  const previous =
+    (beamer.beamerId ? beamers.get(beamer.beamerId) : undefined) ||
+    beamers.get(base.address);
   Array.from(beamers.entries()).forEach(([otherKey, other]) => {
     if (otherKey !== key && other.beamerId === beamer.beamerId) {
       beamers.delete(otherKey);
@@ -1283,7 +1298,7 @@ const refreshBeamer = async (base: BeamerBase) => {
   }
 
   try {
-    await pruneStaleReplaysFor(origin, beamer);
+    await pruneStaleReplaysFor(origin, beamer, previous?.replayCount);
   } catch {
     // if there's no index, we don't know whats stale - just noop.
   }
@@ -1360,7 +1375,8 @@ const onBeamerEvent = (event: BeamerEvent) => {
   }
 };
 
-const ensureBeamerEvents = () => { // turned on as soon as a beamer is first seen 
+const ensureBeamerEvents = () => {
+  // turned on as soon as a beamer is first seen
   if (beamerEvents) {
     return;
   }
