@@ -13,7 +13,7 @@ type DownloadJob = {
   dest: string;
   name: string;
   url: string;
-  size: number; // -1 when unknown
+  size?: number;
   beamerId: string;
   beamerName: string;
   priority: number;
@@ -35,7 +35,7 @@ type BackgroundJob = {
   dest: string;
   name: string;
   url: string;
-  size: number;
+  size?: number;
   beamerId: string;
   beamerName: string;
 };
@@ -208,7 +208,7 @@ export function createDownloadQueue({
     for (let i = queue.length - 1; i >= 0; i -= 1) {
       if (queue[i].batchNumber === batch.id && queue[i].batchNumber > 0) {
         wave.doneFiles += 1;
-        wave.doneBytes += Math.max(queue[i].size, 0);
+        wave.doneBytes += Math.max(queue[i].size ?? 0, 0);
         wave.failures.set(queue[i].beamerId, {
           label: queue[i].beamerName,
           reason,
@@ -280,7 +280,7 @@ export function createDownloadQueue({
       })
       .then(() => {
         wave.doneFiles += 1;
-        wave.doneBytes += Math.max(job.size, 0);
+        wave.doneBytes += Math.max(job.size ?? 0, 0);
         wave.failures.delete(job.beamerId);
         onFileComplete(job.dest);
         finishActive(batch);
@@ -314,7 +314,7 @@ export function createDownloadQueue({
           return;
         }
         wave.doneFiles += 1;
-        wave.doneBytes += Math.max(job.size, 0);
+        wave.doneBytes += Math.max(job.size ?? 0, 0);
         wave.failures.set(job.beamerId, {
           label: job.beamerName,
           reason: failure.message,
@@ -380,8 +380,8 @@ export function createDownloadQueue({
       return;
     }
     wave.totalFiles += 1;
-    if (job.size >= 0) {
-      wave.totalBytes += Math.max(job.size, 0);
+    if (job.size != null) {
+      wave.totalBytes += Math.max(job.size ?? 0, 0);
     } else {
       wave.unknown += 1;
     }
@@ -438,8 +438,8 @@ export function createDownloadQueue({
       }
       pending.forEach((file) => {
         wave.totalFiles += 1;
-        if (file.size >= 0) {
-          wave.totalBytes += Math.max(file.size, 0);
+        if (file.size != null) {
+          wave.totalBytes += Math.max(file.size ?? 0, 0);
         } else {
           wave.unknown += 1;
         }

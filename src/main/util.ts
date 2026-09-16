@@ -132,7 +132,7 @@ function expectedTotal(
   if (length !== null && length !== '') {
     return from + Number(length);
   }
-  return fromIndex !== undefined && fromIndex >= 0 ? fromIndex : -1;
+  return fromIndex;
 }
 
 function resumeHeader(
@@ -230,7 +230,7 @@ async function downloadAttempt(
       throw networkError(error);
     }
 
-    if (expected >= 0 && written !== expected) {
+    if (expected != null && written !== expected) {
       throw new DownloadError(`truncated (${written} of ${expected} bytes)`, {
         discardPartial: written > expected,
       });

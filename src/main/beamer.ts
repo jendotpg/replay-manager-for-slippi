@@ -6,7 +6,7 @@ import { parse as parseIpaddr } from 'ipaddr.js';
 const INDEX_ATTEMPTS = 3;
 const INDEX_RETRY_MS = 1000;
 
-export type BeamerFile = { name: string; size: number; url: string };
+export type BeamerFile = { name: string; size?: number; url: string };
 
 export function toBeamerOrigin(addressOrHost: string) {
   const trimmed = addressOrHost
@@ -105,7 +105,7 @@ export async function getBeamerIndex(origin: string) {
     }
     files.push({
       name,
-      size: Number.isInteger(file.size) ? file.size : -1,
+      size: Number.isInteger(file.size) ? file.size : undefined,
       url,
     });
   });
@@ -133,7 +133,7 @@ export function beamerDirFor(
 export async function hasCompleteFile(dest: string, file: BeamerFile) {
   try {
     const stats = await stat(path.join(dest, file.name));
-    return stats.isFile() && (file.size < 0 || stats.size === file.size);
+    return stats.isFile() && (file.size == null || stats.size === file.size);
   } catch {
     return false;
   }

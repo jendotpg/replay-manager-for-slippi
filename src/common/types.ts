@@ -624,13 +624,13 @@ export type Beamer = {
   ssid: string;
   arch: string;
   ssh: boolean;
-  replayCount: number;
-  replayCap: number;
+  replayCount?: number;
+  replayCap?: number;
   health: BeamerHealth;
   warnings: string[];
-  secsSincePortChange: number | null;
-  secsSinceCharacterChange: number | null;
-  secsSinceGameStart: number | null;
+  secsSincePortChange?: number;
+  secsSinceCharacterChange?: number;
+  secsSinceGameStart?: number;
   reported: boolean;
   game: BeamerGame | null;
   subscribed: boolean;
@@ -649,7 +649,7 @@ export type BeamerEvent = {
   beamerId: string;
   beamerName: string;
   seq: number;
-  replay: { name: string; size: number; url: string };
+  replay: { name: string; size?: number; url: string };
   game: BeamerGame | null;
   origin: string;
 };

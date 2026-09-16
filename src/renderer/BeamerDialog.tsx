@@ -42,8 +42,8 @@ function warningsFor(beamer: Beamer) {
   return beamer.warnings.join(', ');
 }
 
-function formatSecs(secs: number | null) {
-  if (secs === null || secs < 0) {
+function formatSecs(secs: number | undefined) {
+  if (secs == null) {
     return '—';
   }
   if (secs < 60) {
@@ -57,10 +57,10 @@ function formatSecs(secs: number | null) {
 }
 
 function formatReplays(beamer: Beamer) {
-  if (beamer.replayCount < 0) {
+  if (beamer.replayCount == null) {
     return '\u2014';
   }
-  return beamer.replayCap >= 0
+  return beamer.replayCap != null
     ? `${beamer.replayCount} / ${beamer.replayCap}`
     : `${beamer.replayCount}`;
 }
@@ -184,10 +184,10 @@ export default function BeamerDialog({
   const [maxGamesFromIndex, setMaxGamesFromIndex] = useState(4);
 
   const baselines = useRef(new Map<string, { secs: number; at: number }>());
-  const liveSecs = (key: string, reported: number | null) => {
-    if (reported === null) {
+  const liveSecs = (key: string, reported: number | undefined) => {
+    if (reported == null) {
       baselines.current.delete(key);
-      return null;
+      return undefined;
     }
     const previous = baselines.current.get(key);
     if (!previous || previous.secs !== reported) {
@@ -314,7 +314,7 @@ export default function BeamerDialog({
   if (
     confirmingReset &&
     confirmingReset !== 'all' &&
-    confirmingReset.replayCount >= 0
+    confirmingReset.replayCount != null
   ) {
     confirmingResetCount = `All ${confirmingReset.replayCount} replays on this beamer's drive will be erased. This cannot be undone.`;
   }

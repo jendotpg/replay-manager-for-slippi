@@ -58,11 +58,11 @@ function asHealth(value: unknown): BeamerHealth {
 }
 
 function asCount(value: unknown) {
-  return Number.isInteger(value) ? (value as number) : -1;
+  return Number.isInteger(value) ? (value as number) : undefined;
 }
 
 function asSecs(value: unknown) {
-  return Number.isInteger(value) ? (value as number) : null;
+  return Number.isInteger(value) ? (value as number) : undefined;
 }
 
 function asWarnings(value: unknown) {
@@ -108,13 +108,8 @@ export function unreportedBeamer(
     ssid: '',
     arch: '',
     ssh: false,
-    replayCount: -1,
-    replayCap: -1,
     health: 'unknown',
     warnings: [],
-    secsSincePortChange: null,
-    secsSinceCharacterChange: null,
-    secsSinceGameStart: null,
     reported: false,
     game: null,
     subscribed: false,
@@ -333,7 +328,7 @@ export function parseBeamerEvent(
     seq: body.seq,
     replay: {
       name: replay.name,
-      size: Number.isInteger(replay.size) ? replay.size : -1,
+      size: Number.isInteger(replay.size) ? replay.size : undefined,
       url: replay.url,
     },
     game: asGame(body.game),
