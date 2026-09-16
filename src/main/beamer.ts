@@ -6,6 +6,8 @@ import path from 'path';
 import sanitize from 'sanitize-filename';
 import { parse as parseIpaddr } from 'ipaddr.js';
 import {
+  BEAMER_EVENT_KINDS,
+  BEAMER_HEALTHS,
   Beamer,
   BeamerEvent,
   BeamerEventKind,
@@ -14,6 +16,7 @@ import {
   BeamerGame,
   BeamerHealth,
   BeamerPort,
+  BeamerStatusBody,
   DownloadStatus,
   ReplayDir,
 } from '../common/types';
@@ -35,34 +38,43 @@ function asString(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
-function asPort(value: any): BeamerPort | null {
-  if (!value || typeof value !== 'object' || !Number.isInteger(value.port)) {
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+function asPort(value: unknown): BeamerPort | null {
+  const record = asRecord(value);
+  if (!record || !Number.isInteger(record.port)) {
     return null;
   }
   return {
-    port: value.port,
+    port: record.port as number,
     charId:
-      Number.isInteger(value.char_id) && value.char_id >= 0
-        ? value.char_id
+      Number.isInteger(record.char_id) && (record.char_id as number) >= 0
+        ? (record.char_id as number)
         : null,
-    costume: Number.isInteger(value.costume) ? value.costume : 0,
-    char: asString(value.char),
-    color: asString(value.color),
-    nametag: asString(value.nametag),
+    costume: Number.isInteger(record.costume) ? (record.costume as number) : 0,
+    char: asString(record.char),
+    color: asString(record.color),
+    nametag: asString(record.nametag),
   };
 }
 
-function asGame(value: any): BeamerGame | null {
-  if (!value || typeof value !== 'object' || !Array.isArray(value.ports)) {
+function asGame(value: unknown): BeamerGame | null {
+  const record = asRecord(value);
+  if (!record || !Array.isArray(record.ports)) {
     return null;
   }
-  const ports = value.ports
+  const ports = (record.ports as unknown[])
     .map(asPort)
     .filter((port: BeamerPort | null): port is BeamerPort => port !== null);
-  return { live: value.live === true, ports };
+  return { live: record.live === true, ports };
 }
 
-const HEALTHS: BeamerHealth[] = ['ok', 'starting', 'warn', 'error'];
+const HEALTHS: BeamerHealth[] = BEAMER_HEALTHS.filter(
+  (health) => health !== 'unknown',
+);
 
 function asHealth(value: unknown): BeamerHealth {
   return HEALTHS.includes(value as BeamerHealth)
@@ -89,7 +101,7 @@ function asWarnings(value: unknown) {
 
 function beamerFromStatus(
   base: Pick<Beamer, 'address' | 'host'>,
-  status: any,
+  status: BeamerStatusBody,
 ): Beamer {
   return {
     ...base,
@@ -129,13 +141,9 @@ function unreportedBeamer(base: Pick<Beamer, 'address' | 'host'>): Beamer {
   };
 }
 
-function isStatusBody(body: any) {
-  return (
-    Boolean(body) &&
-    typeof body === 'object' &&
-    'schema' in body &&
-    'station_id' in body
-  );
+function isStatusBody(body: unknown): body is BeamerStatusBody {
+  const record = asRecord(body);
+  return Boolean(record && 'schema' in record && 'station_id' in record);
 }
 
 async function readStatus(response: Response) {
@@ -143,14 +151,35 @@ async function readStatus(response: Response) {
   if (Number.isFinite(declaredLength) && declaredLength > MAX_STATUS_BYTES) {
     throw new Error('That beamer sent back far more than a status report.');
   }
+  if (!response.body) {
+    return null;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    received += value.byteLength;
+    if (received > MAX_STATUS_BYTES) {
+      reader.cancel();
+      throw new Error('That beamer sent back far more than a status report.');
+    }
+    chunks.push(value);
+  }
   try {
-    return await response.json();
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     return null;
   }
 }
 
-type StatusResult = { kind: 'status'; body: any } | { kind: 'unreported' };
+type StatusResult =
+  | { kind: 'status'; body: BeamerStatusBody }
+  | { kind: 'unreported' };
 
 async function getBeamerStatus(origin: string): Promise<StatusResult> {
   let response;
@@ -241,15 +270,15 @@ async function requestBeamerReset(origin: string) {
 }
 
 function addressFor(service: { addresses: string[]; port: number }) {
-  const isIpv4 = (candidate: string) => candidate.includes('.');
+  const hasDots = (candidate: string) => candidate.includes('.');
   const isRoutable = (candidate: string) =>
     !candidate.startsWith('127.') && !candidate.startsWith('169.254.');
 
   const address =
     service.addresses.find(
-      (candidate) => isIpv4(candidate) && isRoutable(candidate),
+      (candidate) => hasDots(candidate) && isRoutable(candidate),
     ) ??
-    service.addresses.find(isIpv4) ??
+    service.addresses.find(hasDots) ??
     service.addresses[0] ??
     '';
   if (!address) {
@@ -297,8 +326,6 @@ function browseForBeamers(callbacks: {
   };
 }
 
-const EVENT_KINDS: BeamerEventKind[] = ['game_started', 'game_finished'];
-
 function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
   let body: any;
   try {
@@ -309,7 +336,7 @@ function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
   if (!body || typeof body !== 'object' || !('schema' in body)) {
     return null;
   }
-  if (!EVENT_KINDS.includes(body.event)) {
+  if (!BEAMER_EVENT_KINDS.includes(body.event)) {
     return null;
   }
   if (

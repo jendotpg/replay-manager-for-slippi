@@ -603,7 +603,15 @@ export type BeamerGame = {
   ports: BeamerPort[];
 };
 
-export type BeamerHealth = 'ok' | 'starting' | 'warn' | 'error' | 'unknown';
+export const BEAMER_HEALTHS = [
+  'ok',
+  'starting',
+  'warn',
+  'error',
+  'unknown',
+] as const;
+
+export type BeamerHealth = (typeof BEAMER_HEALTHS)[number];
 
 export type Beamer = {
   address: string;
@@ -632,7 +640,9 @@ export type BeamerFleet = {
   error: string;
 };
 
-export type BeamerEventKind = 'game_started' | 'game_finished';
+export const BEAMER_EVENT_KINDS = ['game_started', 'game_finished'] as const;
+
+export type BeamerEventKind = (typeof BEAMER_EVENT_KINDS)[number];
 
 export type ReplayDir = {
   dir: string;
@@ -651,4 +661,21 @@ export type BeamerEvent = {
   seq: number;
   replay: { name: string; size?: number; url: string };
   game: BeamerGame | null;
+};
+
+export type BeamerStatusBody = {
+  schema: number;
+  station_id: string;
+  station_name?: string;
+  ssid?: string;
+  arch?: string;
+  ssh?: boolean;
+  replay_count?: number;
+  replay_cap?: number;
+  health?: string;
+  warnings?: unknown;
+  secs_since_port_change?: number;
+  secs_since_character_change?: number;
+  secs_since_game_start?: number;
+  game?: unknown;
 };
