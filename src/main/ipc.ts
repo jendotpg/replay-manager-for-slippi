@@ -625,7 +625,7 @@ export default function setupIPCs(
     }
   };
 
-  const onBeamerEvent = (event: Omit<BeamerEvent, 'origin'>) => {
+  const onBeamerEvent = (event: BeamerEvent) => {
     refreshBeamerForEvent(event.beamerId).catch(() => {});
     if (event.event === 'game_finished') {
       const origin = subscribedBeamers.get(event.beamerId);
@@ -644,12 +644,6 @@ export default function setupIPCs(
         }
       }
     }
-    const matched = beamers.get(event.beamerId);
-    const forwarded: BeamerEvent = {
-      ...event,
-      origin: matched ? toBeamerOrigin(matched.address) : '',
-    };
-    mainWindow.webContents.send('beamerEvent', forwarded);
   };
 
   const ensureBeamerEvents = () => {

@@ -55,6 +55,14 @@ export type DownloadQueueDeps = {
   onFileComplete: (dest: string) => void;
 };
 
+async function partSize(dest: string, name: string) {
+  try {
+    return (await stat(path.join(dest, `${name}.part`))).size;
+  } catch {
+    return 0;
+  }
+}
+
 export function createDownloadQueue({
   onStatus,
   onFileComplete,
@@ -342,7 +350,9 @@ export function createDownloadQueue({
     }
     eligible.sort(
       (a, b) =>
-        b.priority - a.priority || b.batchNumber - a.batchNumber || a.seq - b.seq,
+        b.priority - a.priority ||
+        b.batchNumber - a.batchNumber ||
+        a.seq - b.seq,
     );
     const job = eligible[0];
     queue.splice(queue.indexOf(job), 1);
@@ -490,14 +500,6 @@ export function createDownloadQueue({
     cancelForeground,
     clear,
   };
-}
-
-async function partSize(dest: string, name: string) {
-  try {
-    return (await stat(path.join(dest, `${name}.part`))).size;
-  } catch {
-    return 0;
-  }
 }
 
 export type DownloadQueue = ReturnType<typeof createDownloadQueue>;

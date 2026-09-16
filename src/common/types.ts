@@ -651,5 +651,4 @@ export type BeamerEvent = {
   seq: number;
   replay: { name: string; size?: number; url: string };
   game: BeamerGame | null;
-  origin: string;
 };

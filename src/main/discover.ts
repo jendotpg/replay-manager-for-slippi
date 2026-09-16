@@ -290,7 +290,7 @@ const EVENT_KINDS: BeamerEventKind[] = ['game_started', 'game_finished'];
 
 export function parseBeamerEvent(
   buf: Buffer,
-): Omit<BeamerEvent, 'origin'> | null {
+): BeamerEvent | null {
   let body: any;
   try {
     body = JSON.parse(buf.toString('utf8'));
@@ -340,7 +340,7 @@ export type BeamerEventsHandle = {
 };
 
 export function subscribeBeamerEvents(callbacks: {
-  onEvent: (event: Omit<BeamerEvent, 'origin'>, fromAddress: string) => void;
+  onEvent: (event: BeamerEvent, fromAddress: string) => void;
   onError: (error: Error) => void;
 }): BeamerEventsHandle {
   const socket = createSocket({ type: 'udp4', reuseAddr: true });

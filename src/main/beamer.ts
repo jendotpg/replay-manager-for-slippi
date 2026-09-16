@@ -116,9 +116,7 @@ export async function getBeamerIndex(origin: string) {
 }
 
 export function beamerLabel(origin: string, beamerId: string) {
-  return beamerId && beamerId !== 'unknown'
-    ? beamerId
-    : origin.replace(/^http:\/\//, '');
+  return beamerId || origin.replace(/^http:\/\//, '');
 }
 
 export function beamerDirFor(
