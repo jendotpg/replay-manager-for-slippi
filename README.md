@@ -95,10 +95,10 @@ Multicast announcement `game_started`->
 ```json
 {
   "schema": 1,
-  "event": "game_finished",
+  "event": "game_started",
   "station_id": "3f2a...",
   "station_name": "stream station 2",
-  "seq": 8,
+  "seq": 7,
   "replay": {
     "name": "Game_20260814T181203.slp",
     "size": 2134, # this is nonsense - don't worry about it!
@@ -108,7 +108,7 @@ Multicast announcement `game_started`->
 }
 ```
 
-Multicast announcement`game_finished`->
+Multicast announcement `game_finished`->
 
 ```json
 {
@@ -116,7 +116,7 @@ Multicast announcement`game_finished`->
   "event": "game_finished",
   "station_id": "3f2a...",
   "station_name": "stream station 2",
-  "seq": 7,
+  "seq": 8,
   "replay": {
     "name": "Game_20260814T181203.slp",
     "size": 412393, # final size on the card
@@ -125,8 +125,6 @@ Multicast announcement`game_finished`->
   "game": { ... } # the same object as /status "game" - here "live": false
 }
 ```
-
-`game_started`:
 
 ### Trust model
 
@@ -140,10 +138,10 @@ Background network traffic only exists if any beamers are subscribed to. Subscri
 
 Four things change for a user who never touches a Beamer:
 
-1. `downloadFile` is shared with the `replay-manager:` protocol handler, so that path inherits the resume, the retries (which honor a server `Retry-After` on 429/503), the watchdogs, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
+1. `downloadFile` is shared with the `replay-manager:` protocol handler, so that path inherits the resume, the retries, the watchdogs, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
 2. A failed protocol download leaves a `.part` file behind. Upstream immediately deleted the partial file; this fork keeps it so a retry resumes and Settings can delete it. If the host ignores `Range` the fragment is dropped and the file downloads in full upon retry.
 3. Protocol downloads moved from `userData/protocol` to `userData/replayCache/protocol`, alongside the Beamer cache at `userData/replayCache/beamer`. One "Delete cached replays" button in Settings clears both.
-4. Two controls are always visible: the Beamer button in the app bar, and the "No cached replays" row in Settings.
+4. Two controls are always visible: the Beamer button in the app bar and the "No cached replays" row in Settings.
 
 ## Reviewing this without a Beamer
 
@@ -157,7 +155,7 @@ tools/fake_beamer.py --name beamer-virtual-1 --port 8081 \
 
 Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine.
 
-The game payload isn't canned: `--game` is peeked out of a real `.slp` by a port of`beamer::slp`.
+The game payload isn't canned: `--game` is peeked out of a real `.slp` by a port of `beamer::slp`.
 
 The flags that reproduce states the app has to handle:
 
