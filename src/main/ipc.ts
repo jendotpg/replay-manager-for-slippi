@@ -462,39 +462,31 @@ export default function setupIPCs(
   let beamerPollTimer: NodeJS.Timeout | null = null;
   let beamerFleetError = '';
 
-  const subscribedBeamers = new Map<
-    string,
-    { stationId: string; origin: string }
-  >();
-  const isSubscribed = (
-    station: Pick<BeamerStation, 'address' | 'stationId'>,
-  ) =>
-    subscribedBeamers.has(station.address) ||
-    Array.from(subscribedBeamers.values()).some(
-      (entry) => entry.stationId && entry.stationId === station.stationId,
-    );
+  const subscribedBeamers = new Map<string, string>();
+  const isSubscribed = (station: Pick<BeamerStation, 'stationId'>) =>
+    subscribedBeamers.has(station.stationId);
 
   const autoUnsubscribed = new global.Set<string>();
   let autoSubscribeBeamers = store.get('autoSubscribeBeamers', true);
 
-  function subscribeBeamer(address: string) {
-    const station = beamerStations.get(address);
-    const origin = toBeamerOrigin(address);
-    const stationId = station?.stationId ?? '';
-    subscribedBeamers.set(address, { stationId, origin });
-    if (stationId) {
-      rememberBeamer(
-        stationId,
-        origin,
-        station?.stationName || beamerName(origin, stationId),
-      );
+  function subscribeBeamer(station: BeamerStation) {
+    if (!station.stationId) {
+      return;
     }
+    const origin = toBeamerOrigin(station.address);
+    subscribedBeamers.set(station.stationId, origin);
+    rememberBeamer(
+      station.stationId,
+      origin,
+      station.stationName || beamerName(origin, station.stationId),
+    );
   }
 
   const autoSubscribeCandidate = (station: BeamerStation) =>
     autoSubscribeBeamers &&
     station.reported &&
-    !subscribedBeamers.has(station.address) &&
+    Boolean(station.stationId) &&
+    !subscribedBeamers.has(station.stationId) &&
     !autoUnsubscribed.has(station.stationId);
 
   const listedBeamerStations = () =>
@@ -552,10 +544,31 @@ export default function setupIPCs(
       result.kind === 'status'
         ? stationFromStatus(base, result.body)
         : unreportedStation(base);
-    beamerStations.set(base.address, station);
+
+    const key = station.stationId || base.address; // key by address until uuid is reported
+    Array.from(beamerStations.entries()).forEach(
+      ([otherKey, other]) => {
+        if (otherKey !== key && other.stationId === station.stationId) {
+          beamerStations.delete(otherKey);
+        }
+      },
+    );
+    beamerStations.delete(base.address);
+    beamerStations.set(key, station);
+
+    if (station.stationId) {
+      if (subscribedBeamers.has(station.stationId)) {
+        subscribedBeamers.set(station.stationId, origin);
+      }
+      rememberBeamer(
+        station.stationId,
+        origin,
+        station.stationName || beamerName(origin, station.stationId),
+      );
+    }
 
     if (autoSubscribeCandidate(station)) {
-      subscribeBeamer(station.address);
+      subscribeBeamer(station);
     }
 
     try {
@@ -587,19 +600,12 @@ export default function setupIPCs(
   const beamerSelected = () =>
     replayDirs.some((replayDir) => replayDir.dirType === 'beamer');
 
-  const refreshStationForEvent = async (
-    fromAddress: string,
-    stationId: string,
-  ) => {
-    const station =
-      beamerStations.get(fromAddress) ??
-      Array.from(beamerStations.values()).find(
-        (candidate) => stationId !== '' && candidate.stationId === stationId,
-      );
-    if (!station || statusRefreshInFlight.has(station.address)) {
+  const refreshStationForEvent = async (stationId: string) => {
+    const station = beamerStations.get(stationId);
+    if (!station || statusRefreshInFlight.has(stationId)) {
       return;
     }
-    statusRefreshInFlight.add(station.address);
+    statusRefreshInFlight.add(stationId);
     try {
       await refreshBeamerStation({
         address: station.address,
@@ -609,40 +615,32 @@ export default function setupIPCs(
     } catch {
       // blocked or gone; the periodic poll will catch up
     } finally {
-      statusRefreshInFlight.delete(station.address);
+      statusRefreshInFlight.delete(stationId);
     }
   };
 
-  const subscriptionForEvent = (fromAddress: string, stationId: string) =>
-    subscribedBeamers.get(fromAddress) ??
-    Array.from(subscribedBeamers.values()).find(
-      (entry) => entry.stationId && entry.stationId === stationId,
-    );
-
-  const onBeamerEvent = (
-    event: Omit<BeamerEvent, 'origin'>,
-    fromAddress: string,
-  ) => {
-    refreshStationForEvent(fromAddress, event.stationId).catch(() => {});
+  const onBeamerEvent = (event: Omit<BeamerEvent, 'origin'>) => {
+    refreshStationForEvent(event.stationId).catch(() => {});
     if (event.event === 'game_finished') {
-      const sub = subscriptionForEvent(fromAddress, event.stationId);
-      if (sub) {
+      const origin = subscribedBeamers.get(event.stationId);
+      if (origin) {
         try {
           downloadQueue.enqueueBackground({
-            dest: beamerDirFor(beamerFullPath, sub.origin, sub.stationId),
+            dest: beamerDirFor(beamerFullPath, origin, event.stationId),
             name: event.replay.name,
-            url: new URL(event.replay.url, sub.origin).toString(),
+            url: new URL(event.replay.url, origin).toString(),
             size: event.replay.size,
-            source: nameByBeamer.get(sub.stationId) ?? '',
+            source: nameByBeamer.get(event.stationId) ?? '',
           });
         } catch {
           // unparseable replay url - it'll get fetched on select
         }
       }
     }
+    const matched = beamerStations.get(event.stationId);
     const forwarded: BeamerEvent = {
       ...event,
-      origin: toBeamerOrigin(fromAddress),
+      origin: matched ? toBeamerOrigin(matched.address) : '',
     };
     mainWindow.webContents.send('beamerEvent', forwarded);
   };
@@ -684,34 +682,41 @@ export default function setupIPCs(
   };
 
   ipcMain.removeHandler('selectBeamer');
-  ipcMain.handle('selectBeamer', async (event, addressOrHost: string) => {
+  ipcMain.handle('selectBeamer', async (event, stationId: string) => {
+    const station = beamerStations.get(stationId);
+    const origin =
+      (station ? toBeamerOrigin(station.address) : '') ||
+      originByBeamer.get(stationId) ||
+      '';
+    if (!origin) {
+      throw new Error('That station is no longer advertising itself.');
+    }
     stopBeamerBrowse();
 
-    const origin = toBeamerOrigin(addressOrHost);
     const indexPromise = getBeamerIndex(origin);
     const statusPromise = getBeamerStatus(origin).catch(() => null);
-    const { stationId, files } = await indexPromise;
+    const { stationId: indexStationId, files } = await indexPromise;
     const status = await statusPromise;
     const stationName =
       status?.kind === 'status' && typeof status.body.station_name === 'string'
         ? status.body.station_name
         : '';
-    const label = stationName || beamerName(origin, stationId);
+    const label = stationName || beamerName(origin, indexStationId);
 
-    const dest = beamerDirFor(beamerFullPath, origin, stationId);
+    const dest = beamerDirFor(beamerFullPath, origin, indexStationId);
 
     await mkdir(dest, { recursive: true });
     const existingI = replayDirs.findIndex(({ dir }) => dir === dest);
     if (existingI >= 0) {
       replayDirs.splice(existingI, 1);
     }
-    rememberBeamer(stationId, origin, label);
+    rememberBeamer(indexStationId, origin, label);
     addReplayDir({
       dir: dest,
       dirType: 'beamer',
       display: label,
       usbKey: '',
-      beamerId: stationId,
+      beamerId: indexStationId,
     });
     ensureBeamerEvents();
 
@@ -829,11 +834,14 @@ export default function setupIPCs(
     beamerBrowse = browseForBeamers({
       onFound: (base) => {
         ensureBeamerEvents();
-        const existing = beamerStations.get(base.address);
-        beamerStations.set(
-          base.address,
-          existing ? { ...existing, ...base } : unreportedStation(base),
+        const existing = Array.from(beamerStations.entries()).find(
+          ([, station]) => station.address === base.address,
         );
+        if (existing) {
+          beamerStations.set(existing[0], { ...existing[1], ...base });
+        } else {
+          beamerStations.set(base.address, unreportedStation(base));
+        }
         sendBeamerFleet();
         refreshBeamerStation(base)
           .then(sendBeamerFleet)
@@ -842,23 +850,23 @@ export default function setupIPCs(
           });
       },
       onLost: (host) => {
-        const sharing = Array.from(beamerStations.values()).filter(
-          (station) => station.host === host,
+        const sharing = Array.from(beamerStations.entries()).filter(
+          ([, station]) => station.host === host,
         );
         if (sharing.length === 0) {
           return;
         }
         if (sharing.length === 1) {
-          beamerStations.delete(sharing[0].address);
+          beamerStations.delete(sharing[0][0]);
           sendBeamerFleet();
           return;
         }
         Promise.all(
-          sharing.map(async (station) => {
+          sharing.map(async ([key, station]) => {
             try {
               await getBeamerStatus(toBeamerOrigin(station.address));
             } catch {
-              beamerStations.delete(station.address);
+              beamerStations.delete(key);
             }
           }),
         )
@@ -892,15 +900,20 @@ export default function setupIPCs(
     };
   });
 
-  function setBeamerSubscription(address: string, subscribed: boolean) {
+  function setBeamerSubscription(stationId: string, subscribed: boolean) {
     if (subscribed) {
-      subscribeBeamer(address);
-    } else {
-      const station = beamerStations.get(address);
-      if (station?.stationId) {
-        autoUnsubscribed.add(station.stationId);
+      const station = beamerStations.get(stationId);
+      if (station) {
+        subscribeBeamer(station);
+      } else {
+        const remembered = originByBeamer.get(stationId);
+        if (remembered) {
+          subscribedBeamers.set(stationId, remembered);
+        }
       }
-      subscribedBeamers.delete(address);
+    } else {
+      autoUnsubscribed.add(stationId);
+      subscribedBeamers.delete(stationId);
       maybeStopBeamerEvents();
     }
   }
@@ -908,8 +921,8 @@ export default function setupIPCs(
   ipcMain.removeHandler('setBeamerSubscribed');
   ipcMain.handle(
     'setBeamerSubscribed',
-    (event, address: string, subscribed: boolean) => {
-      setBeamerSubscription(address, subscribed);
+    (event, stationId: string, subscribed: boolean) => {
+      setBeamerSubscription(stationId, subscribed);
       if (subscribed) {
         ensureBeamerEvents();
       }
@@ -926,7 +939,7 @@ export default function setupIPCs(
     store.set('autoSubscribeBeamers', on);
     if (on) {
       const swept = listedBeamerStations().filter(autoSubscribeCandidate);
-      swept.forEach((station) => subscribeBeamer(station.address));
+      swept.forEach((station) => subscribeBeamer(station));
       if (swept.length > 0) {
         ensureBeamerEvents();
         sendBeamerFleet();
@@ -935,8 +948,8 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('refreshBeamerStatus');
-  ipcMain.handle('refreshBeamerStatus', async (event, address: string) => {
-    const existing = beamerStations.get(address);
+  ipcMain.handle('refreshBeamerStatus', async (event, stationId: string) => {
+    const existing = beamerStations.get(stationId);
     if (!existing) {
       throw new Error('That station is no longer advertising itself.');
     }
@@ -979,8 +992,8 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('resetBeamerStation');
-  ipcMain.handle('resetBeamerStation', async (event, address: string) => {
-    const existing = beamerStations.get(address);
+  ipcMain.handle('resetBeamerStation', async (event, stationId: string) => {
+    const existing = beamerStations.get(stationId);
     if (!existing) {
       throw new Error('That station is no longer advertising itself.');
     }

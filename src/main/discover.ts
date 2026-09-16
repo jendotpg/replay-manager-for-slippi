@@ -308,7 +308,11 @@ export function parseBeamerEvent(
   if (!EVENT_KINDS.includes(body.event)) {
     return null;
   }
-  if (typeof body.station_id !== 'string' || !Number.isInteger(body.seq)) {
+  if (
+    typeof body.station_id !== 'string' ||
+    !body.station_id ||
+    !Number.isInteger(body.seq)
+  ) {
     return null;
   }
   const { replay } = body;

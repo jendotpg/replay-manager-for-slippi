@@ -37,6 +37,10 @@ function labelFor(station: BeamerStation) {
   return station.stationName || station.stationId || station.address;
 }
 
+function stationKey(station: BeamerStation) {
+  return station.stationId || station.address;
+}
+
 function warningsFor(station: BeamerStation) {
   return station.warnings.join(', ');
 }
@@ -76,7 +80,7 @@ function StationsTooltip({
       {stations.map((station) => {
         const warnings = showWarnings ? warningsFor(station) : '';
         return (
-          <Typography key={station.address} variant="caption">
+          <Typography key={stationKey(station)} variant="caption">
             {warnings
               ? `${labelFor(station)} — ${warnings}`
               : labelFor(station)}
@@ -218,11 +222,11 @@ export default function BeamerDialog({
     return () => clearInterval(interval);
   }, [open]);
 
-  const select = async (address: string) => {
-    setCopying(address);
+  const select = async (stationId: string) => {
+    setCopying(stationId);
     setError('');
     try {
-      await window.electron.selectBeamer(address);
+      await window.electron.selectBeamer(stationId);
       onClose();
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
@@ -231,11 +235,11 @@ export default function BeamerDialog({
     }
   };
 
-  const refresh = async (address: string) => {
-    setRefreshing(address);
+  const refresh = async (stationId: string) => {
+    setRefreshing(stationId);
     setError('');
     try {
-      await window.electron.refreshBeamerStatus(address);
+      await window.electron.refreshBeamerStatus(stationId);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
@@ -244,11 +248,11 @@ export default function BeamerDialog({
   };
 
   const toggleSubscribe = async (station: BeamerStation) => {
-    setSubscribing(station.address);
+    setSubscribing(stationKey(station));
     setError('');
     try {
       await window.electron.setBeamerSubscribed(
-        station.address,
+        stationKey(station),
         !station.subscribed,
       );
     } catch (e: any) {
@@ -274,10 +278,10 @@ export default function BeamerDialog({
   };
 
   const reset = async (station: BeamerStation) => {
-    setResetting(station.address);
+    setResetting(stationKey(station));
     setError('');
     try {
-      await window.electron.resetBeamerStation(station.address);
+      await window.electron.resetBeamerStation(stationKey(station));
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
@@ -466,7 +470,7 @@ export default function BeamerDialog({
                 let subscribeIcon = (
                   <NotificationsNone color="action" fontSize="small" />
                 );
-                if (subscribing === station.address) {
+                if (subscribing === stationKey(station)) {
                   subscribeIcon = <CircularProgress size="20px" />;
                 } else if (station.subscribed) {
                   subscribeIcon = (
@@ -480,10 +484,10 @@ export default function BeamerDialog({
                 return (
                   <TableRow
                     hover
-                    key={station.address}
+                    key={stationKey(station)}
                     onClick={() => {
                       if (!busy) {
-                        select(station.address);
+                        select(stationKey(station));
                       }
                     }}
                     style={{ cursor: busy ? 'default' : 'pointer' }}
@@ -491,7 +495,7 @@ export default function BeamerDialog({
                     <TableCell padding="checkbox">
                       <span>
                         <IconButton
-                          disabled={busy || subscribing === station.address}
+                          disabled={busy || subscribing === stationKey(station)}
                           onClick={(event) => {
                             event.stopPropagation();
                             toggleSubscribe(station);
@@ -513,7 +517,7 @@ export default function BeamerDialog({
                             {labelFor(station)}
                           </Typography>
                         </Tooltip>
-                        {copying === station.address && (
+                        {copying === stationKey(station) && (
                           <CircularProgress size="16px" />
                         )}
                       </Stack>
@@ -540,7 +544,7 @@ export default function BeamerDialog({
                       >
                         {formatSecs(
                           liveSecs(
-                            `${station.address}:ports`,
+                            stationKey(station),
                             station.secsSincePortChange,
                           ),
                         )}
@@ -554,7 +558,7 @@ export default function BeamerDialog({
                       >
                         {formatSecs(
                           liveSecs(
-                            `${station.address}:game`,
+                            stationKey(station),
                             station.secsSinceGameStart,
                           ),
                         )}
@@ -569,10 +573,10 @@ export default function BeamerDialog({
                             }
                             onClick={(event) => {
                               event.stopPropagation();
-                              refresh(station.address);
+                              refresh(stationKey(station));
                             }}
                           >
-                            {refreshing === station.address ? (
+                            {refreshing === stationKey(station) ? (
                               <CircularProgress size="24px" />
                             ) : (
                               <Refresh />
@@ -591,7 +595,7 @@ export default function BeamerDialog({
                               setConfirmingReset(station);
                             }}
                           >
-                            {resetting === station.address ? (
+                            {resetting === stationKey(station) ? (
                               <CircularProgress size="24px" />
                             ) : (
                               <DeleteForever color="error" />

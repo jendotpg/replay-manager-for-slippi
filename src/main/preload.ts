@@ -54,10 +54,13 @@ const electronHandler = {
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
     ipcRenderer.invoke('chooseReplaysDir'),
-  selectBeamer: (addressOrHost: string): Promise<string> =>
-    ipcRenderer.invoke('selectBeamer', addressOrHost),
-  setBeamerSubscribed: (address: string, subscribed: boolean): Promise<void> =>
-    ipcRenderer.invoke('setBeamerSubscribed', address, subscribed),
+  selectBeamer: (stationId: string): Promise<string> =>
+    ipcRenderer.invoke('selectBeamer', stationId),
+  setBeamerSubscribed: (
+    stationId: string,
+    subscribed: boolean,
+  ): Promise<void> =>
+    ipcRenderer.invoke('setBeamerSubscribed', stationId, subscribed),
   getBeamersAutoSubscribe: (): Promise<boolean> =>
     ipcRenderer.invoke('getBeamersAutoSubscribe'),
   setBeamersAutoSubscribe: (on: boolean): Promise<void> =>
@@ -85,10 +88,10 @@ const electronHandler = {
   stopBeamerBrowse: (): Promise<void> => ipcRenderer.invoke('stopBeamerBrowse'),
   getBeamerFleet: (): Promise<BeamerFleet> =>
     ipcRenderer.invoke('getBeamerFleet'),
-  refreshBeamerStatus: (address: string): Promise<void> =>
-    ipcRenderer.invoke('refreshBeamerStatus', address),
-  resetBeamerStation: (address: string): Promise<void> =>
-    ipcRenderer.invoke('resetBeamerStation', address),
+  refreshBeamerStatus: (stationId: string): Promise<void> =>
+    ipcRenderer.invoke('refreshBeamerStatus', stationId),
+  resetBeamerStation: (stationId: string): Promise<void> =>
+    ipcRenderer.invoke('resetBeamerStation', stationId),
   refreshAllBeamerStations: (): Promise<string[]> =>
     ipcRenderer.invoke('refreshAllBeamerStations'),
   resetAllBeamerStations: (): Promise<string[]> =>

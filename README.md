@@ -4,14 +4,6 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-- fleet view updates:
-
-  - add a subscribe-all button to the beamer fleet view (turns into a clear subscriptions button only if all are subscribed)
-  - stop replay count from line breaking (its capped at "1024/1024" anyway LOL)
-  - stop "Ports changed", "characters changed", "game started" from line breaking
-    - honestly, don't bother showing "characters changed"! i don't think its helpful (we can add it back later. not worth taking out of the firmware.)
-
-- robustly handle multiple fake beamers on one pc? is this doable?
 - reflash all the beamers... ugh...
 - clean this whole thing up :3
 
@@ -164,7 +156,7 @@ tools/fake-beamer.py --name beamer-virtual-1 --port 8081 \
   --station-name "Fake 1"
 ```
 
-Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine. Biggest exception: the duplicate-name case can't be faked on my Mac since Bonjour renames the duplicate automatically. Maybe you can get away with it on another platform or by forcing it in a way I didn't try (I didn't try very hard :P )
+Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine, and each one needs a distinct `--name` because its station uuid is derived from it.
 
 The game payload isn't canned: `--game` is peeked out of a real `.slp` by a port of`beamer::slp`.
 

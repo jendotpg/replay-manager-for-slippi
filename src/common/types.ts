@@ -633,8 +633,6 @@ export type BeamerStation = {
   secsSinceGameStart: number | null;
   reported: boolean;
   game: BeamerGame | null;
-  // App-side, not from /status: whether background pulls of this station's
-  // forward-going finished games are on. Session-only. Set when the fleet is built.
   subscribed: boolean;
 };
 
