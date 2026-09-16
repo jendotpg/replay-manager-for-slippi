@@ -5,6 +5,8 @@ export function isValidCharacter(characterId: number) {
   return characterId >= 0 && characterId <= 25;
 }
 
+export const unknownCharacterId = 31;
+
 // Character external ID to short name
 export const characterNames = new Map([
   [0, 'Falcon'],

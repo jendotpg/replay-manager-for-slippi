@@ -35,6 +35,7 @@ import {
   beamerDownWarnings,
   beamerHealthColor,
   characterNames,
+  unknownCharacterId,
 } from '../common/constants';
 import getCharacterIcon from './getCharacterIcon';
 
@@ -142,7 +143,10 @@ function PortCell({
         <Tooltip arrow title={charName}>
           <Avatar
             alt={charName}
-            src={getCharacterIcon(port.charId ?? 31, port.costume)}
+            src={getCharacterIcon(
+              port.charId ?? unknownCharacterId,
+              port.costume,
+            )}
             style={{ height: '24px', width: '24px' }}
             variant="square"
           />
