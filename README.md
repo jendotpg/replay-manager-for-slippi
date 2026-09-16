@@ -4,7 +4,6 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-- reflash all the beamers... ugh...
 - clean this whole thing up :3
 
   - code cleanliness
@@ -151,12 +150,12 @@ Four things change for a user who never touches a Beamer:
 You don't need any extra hardware. Everything the app talks to is an mDNS advertisement and five HTTP endpoints, and [the Beamer repo](https://github.com/jendotpg/slippi-beamer) ships a stand-in:
 
 ```bash
-tools/fake-beamer.py --name beamer-virtual-1 --port 8081 \
+tools/fake_beamer.py --name beamer-virtual-1 --port 8081 \
   --replays ~/Slippi/ --game ~/Slippi/Game_20230110T102627.slp \
   --station-name "Fake 1"
 ```
 
-Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine, and each one needs a distinct `--name` because its station uuid is derived from it.
+Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine.
 
 The game payload isn't canned: `--game` is peeked out of a real `.slp` by a port of`beamer::slp`.
 
