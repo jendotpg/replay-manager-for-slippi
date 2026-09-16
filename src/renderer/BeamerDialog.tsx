@@ -30,7 +30,12 @@ import {
 } from '@mui/icons-material';
 import { useEffect, useRef, useState } from 'react';
 import { BeamerGame, BeamerPort, Beamer } from '../common/types';
-import { EMPTY_BEAMER_FLEET, characterNames } from '../common/constants';
+import {
+  EMPTY_BEAMER_FLEET,
+  beamerDownWarnings,
+  beamerHealthColor,
+  characterNames,
+} from '../common/constants';
 import getCharacterIcon from './getCharacterIcon';
 
 function beamerKey(beamer: Beamer) {
@@ -43,7 +48,7 @@ function warningsFor(beamer: Beamer) {
 
 function formatSecs(secs: number | undefined) {
   if (secs == null) {
-    return '—';
+    return '-';
   }
   if (secs < 60) {
     return `${secs}s`;
@@ -57,7 +62,7 @@ function formatSecs(secs: number | undefined) {
 
 function formatReplays(beamer: Beamer) {
   if (beamer.replayCount == null) {
-    return '\u2014';
+    return '-';
   }
   return beamer.replayCap != null
     ? `${beamer.replayCount} / ${beamer.replayCap}`
@@ -87,21 +92,13 @@ function BeamersTooltip({
 
 const MAX_GAMES_FROM_INDEX = 16; // NUM-REPLAYS-SERVED ceiling
 
-const DOWN_WARNINGS = ['DRIVE FULL', 'NO WII']; // udate if more "can't write" warnings are added...
-
-const HEALTH_COLOR: Record<Beamer['health'], string> = {
-  ok: '#31d158',
-  starting: '#8a8a8e',
-  warn: '#f5a623',
-  error: '#f04438',
-  unknown: '#8a8a8e',
-};
-
 function LiveLight({ beamer }: { beamer: Beamer }) {
   const down =
     beamer.health === 'error' ||
-    beamer.warnings.some((warning) => DOWN_WARNINGS.includes(warning));
-  const color = down ? HEALTH_COLOR.error : HEALTH_COLOR[beamer.health];
+    beamer.warnings.some((warning) => beamerDownWarnings.includes(warning));
+  const color = down
+    ? beamerHealthColor.error
+    : beamerHealthColor[beamer.health];
   const live = Boolean(beamer.game?.live);
   const dot = (
     <span
@@ -197,6 +194,12 @@ export default function BeamerDialog({
   useEffect(() => {
     window.electron.onBeamerFleet((_event, newFleet) => {
       setFleet(newFleet);
+      const keys = new Set(newFleet.beamers.map(beamerKey));
+      Array.from(baselines.current.keys()).forEach((key) => {
+        if (!keys.has(key)) {
+          baselines.current.delete(key);
+        }
+      });
     });
   }, []);
 
@@ -301,8 +304,12 @@ export default function BeamerDialog({
   };
 
   const busy = Boolean(copying);
-  const erroring = fleet.beamers.filter((beamer) => beamer.health === 'error');
-  const warning = fleet.beamers.filter((beamer) => beamer.health === 'warn');
+  const erroringBeamers = fleet.beamers.filter(
+    (beamer) => beamer.health === 'error',
+  );
+  const warningBeamers = fleet.beamers.filter(
+    (beamer) => beamer.health === 'warn',
+  );
 
   let confirmingResetCount =
     "Every replay on this beamer's drive will be erased. This cannot be undone.";
@@ -360,33 +367,36 @@ export default function BeamerDialog({
               />
               <Typography variant="body2">games downloaded</Typography>
             </Stack>
-            {erroring.length > 0 && (
+            {erroringBeamers.length > 0 && (
               <Tooltip
                 arrow
                 title={
-                  <BeamersTooltip showWarnings={false} beamers={erroring} />
+                  <BeamersTooltip
+                    showWarnings={false}
+                    beamers={erroringBeamers}
+                  />
                 }
               >
                 <Chip
                   color="error"
                   icon={<ErrorOutline />}
-                  label={`${erroring.length} error${
-                    erroring.length === 1 ? '' : 's'
+                  label={`${erroringBeamers.length} error${
+                    erroringBeamers.length === 1 ? '' : 's'
                   }`}
                   size="small"
                 />
               </Tooltip>
             )}
-            {warning.length > 0 && (
+            {warningBeamers.length > 0 && (
               <Tooltip
                 arrow
-                title={<BeamersTooltip showWarnings beamers={warning} />}
+                title={<BeamersTooltip showWarnings beamers={warningBeamers} />}
               >
                 <Chip
                   color="warning"
                   icon={<Warning />}
-                  label={`${warning.length} warning${
-                    warning.length === 1 ? '' : 's'
+                  label={`${warningBeamers.length} warning${
+                    warningBeamers.length === 1 ? '' : 's'
                   }`}
                   size="small"
                 />
