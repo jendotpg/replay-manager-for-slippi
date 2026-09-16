@@ -1,4 +1,4 @@
-import { BeamerFleet, Beamer } from './types';
+import { Beamer } from './types';
 
 // Is character external ID tournament legal
 export function isValidCharacter(characterId: number) {
@@ -315,10 +315,4 @@ export const beamerHealthColor: Record<Beamer['health'], string> = {
   warn: '#f5a623',
   error: '#f04438',
   unknown: '#8a8a8e',
-};
-
-export const EMPTY_BEAMER_FLEET: BeamerFleet = {
-  beamers: [],
-  browsing: false,
-  error: '',
 };

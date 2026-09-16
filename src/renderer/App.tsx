@@ -3344,8 +3344,7 @@ function Hello() {
                 enforcerVersion={ENFORCER_VERSION}
                 enforcerSetting={enforcerSetting}
                 smuggleCostumeIndex={smuggleCostumeIndex}
-                wouldDeleteCopyDir={wouldDeleteCopyDir}
-                isBeamer={isBeamer}
+                deleteBlockedReason={deleteBlockedReason}
                 replayLoadCount={replayLoadCount}
                 undoSubdir={undoSubdir}
               />

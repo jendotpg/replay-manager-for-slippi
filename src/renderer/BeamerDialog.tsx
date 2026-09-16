@@ -29,9 +29,8 @@ import {
   Warning,
 } from '@mui/icons-material';
 import { useEffect, useRef, useState } from 'react';
-import { BeamerGame, BeamerPort, Beamer } from '../common/types';
+import { BeamerGame, BeamerFleet, BeamerPort, Beamer } from '../common/types';
 import {
-  EMPTY_BEAMER_FLEET,
   beamerDownWarnings,
   beamerHealthColor,
   characterNames,
@@ -174,7 +173,11 @@ export default function BeamerDialog({
   open: boolean;
   onClose: () => void;
 }) {
-  const [fleet, setFleet] = useState(EMPTY_BEAMER_FLEET);
+  const [fleet, setFleet] = useState<BeamerFleet>({
+    beamers: [],
+    browsing: false,
+    error: '',
+  });
   const [busyWith, setBusyWith] = useState<BeamerBusy | null>(null);
   const [confirmingReset, setConfirmingReset] = useState<Beamer | 'all' | null>(
     null,
