@@ -8,7 +8,7 @@ import {
   Paper,
 } from '@mui/material';
 
-import { BeamerDownloadStatus } from '../common/types';
+import { DownloadStatus } from '../common/types';
 
 const MAX_VISIBLE_SOURCES = 3;
 
@@ -32,7 +32,7 @@ export default function BeamerDownloadSnackbar({
   onClose,
   onCancel,
 }: {
-  status: BeamerDownloadStatus;
+  status: DownloadStatus;
   onClose: () => void;
   onCancel: () => void;
 }) {

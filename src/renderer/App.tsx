@@ -89,7 +89,7 @@ import {
   SelectedSetChain,
   Set,
   SlpDownloadStatus,
-  BeamerDownloadStatus,
+  DownloadStatus,
   StartggSet,
   State,
   Stream,
@@ -226,7 +226,7 @@ function Hello() {
     { status: 'idle' },
   );
   const [beamerDownloadStatus, setBeamerDownloadStatus] =
-    useState<BeamerDownloadStatus>({ status: 'idle' });
+    useState<DownloadStatus>({ status: 'idle' });
 
   useEffect(() => {
     const handler = (_event: any, status: SlpDownloadStatus) => {
@@ -236,7 +236,7 @@ function Hello() {
   }, []);
 
   useEffect(() => {
-    const handler = (_event: any, status: BeamerDownloadStatus) => {
+    const handler = (_event: any, status: DownloadStatus) => {
       setBeamerDownloadStatus(status);
     };
     window.electron.onBeamerDownloadStatus(handler);

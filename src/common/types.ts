@@ -447,7 +447,7 @@ export type SlpDownloadStatus =
   | { status: 'error'; failedFiles: string[] }
   | { status: 'success' };
 
-export type BeamerDownloadStatus =
+export type DownloadStatus =
   | { status: 'idle' }
   | {
       status: 'downloading';
@@ -634,6 +634,7 @@ export type Beamer = {
   reported: boolean;
   game: BeamerGame | null;
   subscribed: boolean;
+  label: string;
 };
 
 export type BeamerFleet = {
@@ -643,6 +644,16 @@ export type BeamerFleet = {
 };
 
 export type BeamerEventKind = 'game_started' | 'game_finished';
+
+export type ReplayDir = {
+  dir: string;
+  dirType: DirType;
+  display: string;
+  usbKey: string;
+  beamerId: string;
+};
+
+export type BeamerFile = { name: string; size?: number; url: string };
 
 export type BeamerEvent = {
   event: BeamerEventKind;

@@ -15,7 +15,7 @@ import {
   ReportSettings,
   Set,
   SlpDownloadStatus,
-  BeamerDownloadStatus,
+  DownloadStatus,
   StartggSet,
   Tournament,
   WebSocketServerStatus,
@@ -45,7 +45,7 @@ const electronHandler = {
     ipcRenderer.on('slp-download-status', callback);
   },
   onBeamerDownloadStatus: (
-    callback: (event: IpcRendererEvent, status: BeamerDownloadStatus) => void,
+    callback: (event: IpcRendererEvent, status: DownloadStatus) => void,
   ) => {
     ipcRenderer.removeAllListeners('beamerDownloadStatus');
     ipcRenderer.on('beamerDownloadStatus', callback);
@@ -55,10 +55,7 @@ const electronHandler = {
     ipcRenderer.invoke('chooseReplaysDir'),
   selectBeamer: (beamerId: string): Promise<string> =>
     ipcRenderer.invoke('selectBeamer', beamerId),
-  setBeamerSubscribed: (
-    beamerId: string,
-    subscribed: boolean,
-  ): Promise<void> =>
+  setBeamerSubscribed: (beamerId: string, subscribed: boolean): Promise<void> =>
     ipcRenderer.invoke('setBeamerSubscribed', beamerId, subscribed),
   getBeamersAutoSubscribe: (): Promise<boolean> =>
     ipcRenderer.invoke('getBeamersAutoSubscribe'),

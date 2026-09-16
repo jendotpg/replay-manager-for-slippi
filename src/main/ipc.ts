@@ -26,9 +26,7 @@ import yauzl from 'yauzl-promise';
 import { pipeline } from 'stream/promises';
 import { detectUsb, MountData } from './detectUsb';
 import {
-  BeamerEvent,
-  BeamerFleet,
-  Beamer,
+  ReplayDir,
   ChallongeMatchItem,
   Context,
   CopySettings,
@@ -37,7 +35,6 @@ import {
   EnforceState,
   EnforceStatus,
   Id,
-  DirType,
   Mode,
   Output,
   ParryggGame,
@@ -46,7 +43,7 @@ import {
   SelectedSetChain,
   Set as MatchSet,
   SlpDownloadStatus,
-  BeamerDownloadStatus,
+  DownloadStatus,
   StartggGame,
   StartggSet,
 } from '../common/types';
@@ -123,31 +120,30 @@ import {
   stopListeningAndSend,
 } from './host';
 import { assertInteger, assertString } from '../common/asserts';
-import { labelFor } from '../common/beamers';
-import { downloadFile, resolveHtmlPath } from './util';
+import { resolveHtmlPath } from './util';
+import { downloadFile } from './download';
 import {
-  beamerDirFor,
-  beamerLabel,
-  clearReplayCache,
-  firstMissingFile,
-  getReplayCacheSize,
-  getBeamerIndex,
-  listCachedReplays,
-  pruneStaleReplays,
-  toBeamerOrigin,
-} from './beamer';
-import { createDownloadQueue } from './downloadQueue';
-import {
-  BeamerBrowseHandle,
-  BeamerEventsHandle,
-  browseForBeamers,
-  FLEET_POLL_MS,
-  getBeamerStatus,
+  initBeamers,
+  selectBeamer,
+  refreshFromBeamer,
+  getNextBeamerReplay,
+  downloadNextBeamerReplay,
+  cancelBeamerDownload,
+  getBeamerFleet,
+  startBeamerBrowse,
+  stopBeamerBrowse,
+  setBeamerSubscribed,
+  getBeamersAutoSubscribe,
+  setBeamersAutoSubscribe,
+  refreshBeamerStatus,
   resetBeamer,
-  beamerFromStatus,
-  subscribeBeamerEvents,
-  unreportedBeamer,
-} from './discover';
+  refreshAllBeamers,
+  resetAllBeamers,
+  getMaxGamesFromIndex,
+  setMaxGamesFromIndex,
+  getReplayCacheSize,
+  clearReplayCache,
+} from './beamer';
 import {
   assignOfflineModeSetStation,
   assignOfflineModeSetStream,
@@ -170,14 +166,6 @@ import {
   startOfflineModeSet,
   deafenForOfflineModeAndSend,
 } from './offlinemode';
-
-type ReplayDir = {
-  dir: string;
-  dirType: DirType;
-  display: string;
-  usbKey: string;
-  beamerId: string;
-};
 
 let entrantsWindow: BrowserWindow | null = null;
 
@@ -216,8 +204,6 @@ export default function setupIPCs(
 
   let replayDirs: ReplayDir[] = [];
   const knownUsbs = new Map<string, boolean>();
-  const originByBeamer = new Map<string, string>();
-  const nameByBeamer = new Map<string, string>();
 
   function announceReplayDir() {
     const top =
@@ -229,28 +215,6 @@ export default function setupIPCs(
       top?.dirType === 'beamer' ? top.beamerId : '',
     );
   }
-
-  function rememberBeamer(beamerId: string, origin: string, name: string) {
-    originByBeamer.set(beamerId, origin);
-    nameByBeamer.set(beamerId, name);
-  }
-
-  const beamerLabelFor = (beamerId: string) => {
-    const remembered = nameByBeamer.get(beamerId);
-    if (remembered) {
-      return remembered;
-    }
-    const origin = originByBeamer.get(beamerId);
-    return origin ? beamerLabel(origin, beamerId) : beamerId;
-  };
-
-  const announceIfActive = (dest: string) => {
-    const top =
-      replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
-    if (top && top.dir === dest) {
-      announceReplayDir();
-    }
-  };
 
   function addReplayDir(entry: ReplayDir) {
     replayDirs.push(entry);
@@ -435,464 +399,73 @@ export default function setupIPCs(
     return chosenReplaysDir;
   });
 
-  const MAX_GAMES_FROM_INDEX_CEILING = 16;
   let maxGamesFromIndex = store.get('maxGamesFromIndex', 4);
-  ipcMain.removeHandler('getMaxGamesFromIndex');
-  ipcMain.handle('getMaxGamesFromIndex', () => maxGamesFromIndex);
+  let autoSubscribeBeamers = store.get('autoSubscribeBeamers', true);
 
-  ipcMain.removeHandler('setMaxGamesFromIndex');
-  ipcMain.handle(
-    'setMaxGamesFromIndex',
-    (event, newMaxGamesFromIndex: number) => {
-      maxGamesFromIndex = Math.min(
-        Math.max(assertInteger(newMaxGamesFromIndex), 1),
-        MAX_GAMES_FROM_INDEX_CEILING,
-      );
-      store.set('maxGamesFromIndex', maxGamesFromIndex);
-      return maxGamesFromIndex;
-    },
-  );
-
-  const sendBeamerDownloadStatus = (status: BeamerDownloadStatus) => {
+  const sendBeamerDownloadStatus = (status: DownloadStatus) => {
     if (mainWindow) {
       mainWindow.webContents.send('beamerDownloadStatus', status);
     }
   };
-
-  const downloadQueue = createDownloadQueue({
-    onStatus: sendBeamerDownloadStatus,
-    onFileComplete: announceIfActive,
+  initBeamers({
+    sendFleet: (fleet) => {
+      mainWindow.webContents.send('beamerFleet', fleet);
+    },
+    sendDownloadStatus: (status) => sendBeamerDownloadStatus(status),
+    getReplayDirs: () => replayDirs,
+    addReplayDir: (entry) => addReplayDir(entry),
+    removeReplayDirs: (pred) => removeReplayDirs(pred),
+    announceReplayDir: () => announceReplayDir(),
+    getAutoSubscribe: () => autoSubscribeBeamers,
+    setAutoSubscribePersisted: (on) => {
+      autoSubscribeBeamers = on;
+      store.set('autoSubscribeBeamers', on);
+    },
+    getMaxGames: () => maxGamesFromIndex,
+    setMaxGamesPersisted: (n) => {
+      maxGamesFromIndex = n;
+      store.set('maxGamesFromIndex', n);
+    },
+    beamerFullPath,
+    replayCacheFullPath,
   });
 
   ipcMain.removeHandler('cancelBeamerDownload');
   ipcMain.handle('cancelBeamerDownload', () => {
-    downloadQueue.cancelForeground();
+    cancelBeamerDownload();
   });
-
-  const beamers = new Map<string, Beamer>();
-  let beamerBrowse: BeamerBrowseHandle | null = null;
-  let beamerPollTimer: NodeJS.Timeout | null = null;
-  let beamerFleetError = '';
-
-  const subscribedBeamers = new Map<string, string>();
-  const isSubscribed = (beamer: Pick<Beamer, 'beamerId'>) =>
-    subscribedBeamers.has(beamer.beamerId);
-
-  const unsubscribed = new Set<string>();   // unsubscribes only have session lifetimes
-  let autoSubscribeBeamers = store.get('autoSubscribeBeamers', true);
-
-  function rememberBeamerSubscription(origin: string, beamer: Beamer) {
-    if (!beamer.beamerId) {
-      return;
-    }
-    subscribedBeamers.set(beamer.beamerId, origin);
-    rememberBeamer(
-      beamer.beamerId,
-      origin,
-      beamer.beamerName || beamerLabel(origin, beamer.beamerId),
-    );
-  }
-
-  const autoSubscribeCandidate = (beamer: Beamer) =>
-    autoSubscribeBeamers &&
-    beamer.reported &&
-    Boolean(beamer.beamerId) &&
-    !subscribedBeamers.has(beamer.beamerId) &&
-    !unsubscribed.has(beamer.beamerId);
-
-  const listedBeamers = () =>
-    Array.from(beamers.values())
-      .filter((beamer) => beamer.reported)
-      .sort((a, b) => labelFor(a).localeCompare(labelFor(b)))
-      .map((beamer) => ({ ...beamer, subscribed: isSubscribed(beamer) }));
-
-  const buildBeamerFleet = (): BeamerFleet => ({
-    beamers: listedBeamers(),
-    browsing: beamerBrowse !== null,
-    error: beamerFleetError,
-  });
-
-  const sendBeamerFleet = () => {
-    mainWindow.webContents.send('beamerFleet', buildBeamerFleet());
-  };
-
-  const pruneStaleReplaysFor = async (origin: string, beamer: Beamer) => {
-    if (!beamer.beamerId) {
-      return;
-    }
-    const dest = beamerDirFor(beamerFullPath, origin, beamer.beamerId);
-    const cached = await listCachedReplays(dest);
-    if (cached.length === 0) {
-      return;
-    }
-
-    const { files } = await getBeamerIndex(origin);
-    const stale = await pruneStaleReplays(
-      dest,
-      cached,
-      files.map((file) => file.name),
-    );
-    if (stale.length === 0) {
-      return;
-    }
-
-    const current =
-      replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
-    if (current?.dir === dest) {
-      announceReplayDir();
-    }
-  };
-
-  type BeamerBase = Pick<Beamer, 'address' | 'host'>;
-  const refreshBeamer = async (base: BeamerBase) => {
-    const origin = toBeamerOrigin(base.address);
-    const result = await getBeamerStatus(origin);
-    const beamer =
-      result.kind === 'status'
-        ? beamerFromStatus(base, result.body)
-        : unreportedBeamer(base);
-
-    const key = beamer.beamerId || base.address; // key by address until uuid is reported
-    Array.from(beamers.entries()).forEach(
-      ([otherKey, other]) => {
-        if (otherKey !== key && other.beamerId === beamer.beamerId) {
-          beamers.delete(otherKey);
-        }
-      },
-    );
-    beamers.delete(base.address);
-    beamers.set(key, beamer);
-
-    if (beamer.beamerId) {
-      if (subscribedBeamers.has(beamer.beamerId)) {
-        subscribedBeamers.set(beamer.beamerId, origin);
-      }
-      rememberBeamer(
-        beamer.beamerId,
-        origin,
-        beamer.beamerName || beamerLabel(origin, beamer.beamerId),
-      );
-    }
-
-    if (autoSubscribeCandidate(beamer)) {
-      rememberBeamerSubscription(origin, beamer);
-    }
-
-    try {
-      await pruneStaleReplaysFor(origin, beamer);
-    } catch {
-      // if there's no index, we don't know whats stale - just noop.
-    }
-  };
-
-  const pollBeamerFleet = async () => {
-    const bases = Array.from(beamers.values()).map(
-      ({ address, host }) => ({ address, host }),
-    );
-    await Promise.all(
-      bases.map(async (base) => {
-        try {
-          await refreshBeamer(base);
-        } catch {
-          // not necessarily lost, might just be blocked :P
-        }
-      }),
-    );
-    sendBeamerFleet();
-  };
-
-  let beamerEvents: BeamerEventsHandle | null = null;
-  const statusRefreshInFlight = new Set<string>();
-
-  const beamerSelected = () =>
-    replayDirs.some((replayDir) => replayDir.dirType === 'beamer');
-
-  const refreshBeamerForEvent = async (beamerId: string) => {
-    const beamer = beamers.get(beamerId);
-    if (!beamer || statusRefreshInFlight.has(beamerId)) {
-      return;
-    }
-    statusRefreshInFlight.add(beamerId);
-    try {
-      await refreshBeamer({
-        address: beamer.address,
-        host: beamer.host,
-      });
-      sendBeamerFleet();
-    } catch {
-      // blocked or gone; the periodic poll will catch up
-    } finally {
-      statusRefreshInFlight.delete(beamerId);
-    }
-  };
-
-  const onBeamerEvent = (event: BeamerEvent) => {
-    refreshBeamerForEvent(event.beamerId).catch(() => {});
-    if (event.event === 'game_finished') {
-      const origin = subscribedBeamers.get(event.beamerId);
-      if (origin) {
-        try {
-          downloadQueue.enqueueBackground({
-            dest: beamerDirFor(beamerFullPath, origin, event.beamerId),
-            name: event.replay.name,
-            url: new URL(event.replay.url, origin).toString(),
-            size: event.replay.size,
-            beamerId: event.beamerId,
-            beamerName: beamerLabelFor(event.beamerId),
-          });
-        } catch {
-          // unparseable replay url - it'll get fetched on select
-        }
-      }
-    }
-  };
-
-  const ensureBeamerEvents = () => {
-    if (beamerEvents) {
-      return;
-    }
-    beamerEvents = subscribeBeamerEvents({
-      onEvent: onBeamerEvent,
-      onError: () => {
-        // best-effort: a bind/join failure just means no live hints this session
-      },
-    });
-  };
-
-  const maybeStopBeamerEvents = () => {
-    if (
-      beamerEvents &&
-      !beamerBrowse &&
-      !beamerSelected() &&
-      subscribedBeamers.size === 0
-    ) {
-      beamerEvents.stop();
-      beamerEvents = null;
-    }
-  };
-
-  const stopBeamerBrowse = () => {
-    beamerBrowse?.stop();
-    beamerBrowse = null;
-    if (beamerPollTimer) {
-      clearInterval(beamerPollTimer);
-      beamerPollTimer = null;
-    }
-    beamers.clear();
-    beamerFleetError = '';
-    maybeStopBeamerEvents();
-  };
 
   ipcMain.removeHandler('selectBeamer');
-  ipcMain.handle('selectBeamer', async (event, beamerId: string) => {
-    const beamer = beamers.get(beamerId);
-    const origin =
-      (beamer ? toBeamerOrigin(beamer.address) : '') ||
-      originByBeamer.get(beamerId) ||
-      '';
-    if (!origin) {
-      throw new Error('That beamer is no longer advertising itself.');
-    }
-    stopBeamerBrowse();
-
-    const indexPromise = getBeamerIndex(origin);
-    const statusPromise = getBeamerStatus(origin).catch(() => null);
-    const { beamerId: indexBeamerId, files } = await indexPromise;
-    const status = await statusPromise;
-    const beamerName =
-      status?.kind === 'status' && typeof status.body.station_name === 'string'
-        ? status.body.station_name
-        : '';
-    const label = beamerName || beamerLabel(origin, indexBeamerId);
-
-    const dest = beamerDirFor(beamerFullPath, origin, indexBeamerId);
-
-    await mkdir(dest, { recursive: true });
-    const existingI = replayDirs.findIndex(({ dir }) => dir === dest);
-    if (existingI >= 0) {
-      replayDirs.splice(existingI, 1);
-    }
-    rememberBeamer(indexBeamerId, origin, label);
-    addReplayDir({
-      dir: dest,
-      dirType: 'beamer',
-      display: label,
-      usbKey: '',
-      beamerId: indexBeamerId,
-    });
-    ensureBeamerEvents();
-
-    downloadQueue
-      .enqueueForegroundBatch(
-        dest,
-        files.slice(0, maxGamesFromIndex),
-        indexBeamerId,
-        label,
-      )
-      .then(() => {
-        announceReplayDir();
-        return undefined;
-      })
-      .catch((e) => {
-        sendBeamerDownloadStatus({
-          status: 'error',
-          failedFiles: [
-            `The pull failed: ${e instanceof Error ? e.message : String(e)}`,
-          ],
-        });
-      });
-    return dest;
-  });
-
-  const selectedBeamerDir = (beamerId: string) => {
-    const current = replayDirs.find(
-      (replayDir) =>
-        replayDir.dirType === 'beamer' && replayDir.beamerId === beamerId,
-    );
-    if (!current) {
-      throw new Error('Those replays are no longer loaded from a Beamer.');
-    }
-    return current.dir;
-  };
+  ipcMain.handle('selectBeamer', (event, beamerId: string) =>
+    selectBeamer(beamerId),
+  );
 
   ipcMain.removeHandler('refreshFromBeamer');
-  ipcMain.handle('refreshFromBeamer', async (event, beamerId: string) => {
-    const dir = selectedBeamerDir(beamerId);
-    const origin = originByBeamer.get(beamerId);
-    if (!origin) {
-      throw new Error('Those replays are no longer loaded from a Beamer.');
-    }
-
-    const { files } = await getBeamerIndex(origin);
-    await downloadQueue.enqueueForegroundBatch(
-      dir,
-      files.slice(0, maxGamesFromIndex),
-      beamerId,
-      beamerLabelFor(beamerId),
-    );
-    announceIfActive(dir);
-  });
+  ipcMain.handle('refreshFromBeamer', (event, beamerId: string) =>
+    refreshFromBeamer(beamerId),
+  );
 
   ipcMain.removeHandler('getNextBeamerReplay');
-  ipcMain.handle('getNextBeamerReplay', async (event, beamerId: string) => {
-    let dir;
-    const origin = originByBeamer.get(beamerId);
-    try {
-      dir = selectedBeamerDir(beamerId);
-    } catch {
-      return '';
-    }
-    if (!origin) {
-      return '';
-    }
-    try {
-      const { files } = await getBeamerIndex(origin);
-      return (await firstMissingFile(dir, files))?.name ?? '';
-    } catch {
-      return '';
-    }
-  });
+  ipcMain.handle('getNextBeamerReplay', (event, beamerId: string) =>
+    getNextBeamerReplay(beamerId),
+  );
 
   ipcMain.removeHandler('downloadNextBeamerReplay');
-  ipcMain.handle(
-    'downloadNextBeamerReplay',
-    async (event, beamerId: string) => {
-      const dir = selectedBeamerDir(beamerId);
-      const origin = originByBeamer.get(beamerId);
-      if (!origin) {
-        throw new Error('Those replays are no longer loaded from a Beamer.');
-      }
-      const { files } = await getBeamerIndex(origin);
-      const next = await firstMissingFile(dir, files);
-      if (!next) {
-        return;
-      }
-
-      await downloadQueue.enqueueForegroundBatch(
-        dir,
-        [next],
-        beamerId,
-        beamerLabelFor(beamerId),
-      );
-      announceIfActive(dir);
-    },
+  ipcMain.handle('downloadNextBeamerReplay', (event, beamerId: string) =>
+    downloadNextBeamerReplay(beamerId),
   );
 
   ipcMain.removeHandler('getReplayCacheSize');
-  ipcMain.handle('getReplayCacheSize', () =>
-    getReplayCacheSize(replayCacheFullPath),
-  );
+  ipcMain.handle('getReplayCacheSize', () => getReplayCacheSize());
 
   ipcMain.removeHandler('clearReplayCache');
   ipcMain.handle('clearReplayCache', async () => {
-    downloadQueue.clear();
-    const cached = ({ dir }: ReplayDir) => dir.startsWith(replayCacheFullPath);
-    if (replayDirs.some(cached)) {
-      removeReplayDirs(cached);
-    }
-    maybeStopBeamerEvents();
-    await clearReplayCache(replayCacheFullPath);
+    await clearReplayCache();
   });
 
   ipcMain.removeHandler('startBeamerBrowse');
   ipcMain.handle('startBeamerBrowse', () => {
-    if (beamerBrowse) {
-      return;
-    }
-    beamerFleetError = '';
-    beamerBrowse = browseForBeamers({
-      onFound: (base) => {
-        ensureBeamerEvents();
-        const existing = Array.from(beamers.entries()).find(
-          ([, beamer]) => beamer.address === base.address,
-        );
-        if (existing) {
-          beamers.set(existing[0], { ...existing[1], ...base });
-        } else {
-          beamers.set(base.address, unreportedBeamer(base));
-        }
-        sendBeamerFleet();
-        refreshBeamer(base)
-          .then(sendBeamerFleet)
-          .catch(() => {
-            sendBeamerFleet();
-          });
-      },
-      onLost: (host) => {
-        const sharing = Array.from(beamers.entries()).filter(
-          ([, beamer]) => beamer.host === host,
-        );
-        if (sharing.length === 0) {
-          return;
-        }
-        if (sharing.length === 1) {
-          beamers.delete(sharing[0][0]);
-          sendBeamerFleet();
-          return;
-        }
-        Promise.all(
-          sharing.map(async ([key, beamer]) => {
-            try {
-              await getBeamerStatus(toBeamerOrigin(beamer.address));
-            } catch {
-              beamers.delete(key);
-            }
-          }),
-        )
-          .then(sendBeamerFleet)
-          .catch(() => {
-            sendBeamerFleet();
-          });
-      },
-      onError: (error) => {
-        beamerFleetError = error.message;
-        sendBeamerFleet();
-      },
-    });
-    beamerPollTimer = setInterval(() => {
-      pollBeamerFleet().catch(() => {});
-    }, FLEET_POLL_MS);
-    sendBeamerFleet();
+    startBeamerBrowse();
   });
 
   ipcMain.removeHandler('stopBeamerBrowse');
@@ -901,133 +474,49 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('getBeamerFleet');
-  ipcMain.handle('getBeamerFleet', (): BeamerFleet => {
-    return buildBeamerFleet();
-  });
-
-  function setBeamerSubscription(beamerId: string, subscribed: boolean) {
-    if (subscribed) {
-      const beamer = beamers.get(beamerId);
-      if (beamer) {
-        rememberBeamerSubscription(toBeamerOrigin(beamer.address), beamer);
-      } else {
-        const remembered = originByBeamer.get(beamerId);
-        if (remembered) {
-          subscribedBeamers.set(beamerId, remembered);
-        }
-      }
-    } else {
-      unsubscribed.add(beamerId);
-      subscribedBeamers.delete(beamerId);
-      maybeStopBeamerEvents();
-    }
-  }
+  ipcMain.handle('getBeamerFleet', () => getBeamerFleet());
 
   ipcMain.removeHandler('setBeamerSubscribed');
   ipcMain.handle(
     'setBeamerSubscribed',
     (event, beamerId: string, subscribed: boolean) => {
-      setBeamerSubscription(beamerId, subscribed);
-      if (subscribed) {
-        ensureBeamerEvents();
-      }
-      sendBeamerFleet();
+      setBeamerSubscribed(beamerId, subscribed);
     },
   );
 
   ipcMain.removeHandler('getBeamersAutoSubscribe');
-  ipcMain.handle('getBeamersAutoSubscribe', () => autoSubscribeBeamers);
+  ipcMain.handle('getBeamersAutoSubscribe', () => getBeamersAutoSubscribe());
 
   ipcMain.removeHandler('setBeamersAutoSubscribe');
   ipcMain.handle('setBeamersAutoSubscribe', (event, on: boolean) => {
-    autoSubscribeBeamers = on;
-    store.set('autoSubscribeBeamers', on);
-    if (on) {
-      const swept = listedBeamers().filter(autoSubscribeCandidate);
-      swept.forEach((beamer) =>
-        rememberBeamerSubscription(toBeamerOrigin(beamer.address), beamer),
-      );
-      if (swept.length > 0) {
-        ensureBeamerEvents();
-        sendBeamerFleet();
-      }
-    }
+    setBeamersAutoSubscribe(on);
   });
 
   ipcMain.removeHandler('refreshBeamerStatus');
-  ipcMain.handle('refreshBeamerStatus', async (event, beamerId: string) => {
-    const existing = beamers.get(beamerId);
-    if (!existing) {
-      throw new Error('That beamer is no longer advertising itself.');
-    }
-    await refreshBeamer({
-      address: existing.address,
-      host: existing.host,
-    });
-    sendBeamerFleet();
-  });
-
-  const runOverFleet = async (
-    action: (beamer: Beamer) => Promise<void>,
-  ): Promise<string[]> => {
-    const targets = listedBeamers();
-    if (targets.length === 0) {
-      throw new Error('No beamers are advertising themselves.');
-    }
-
-    const results = await Promise.allSettled(targets.map(action));
-
-    const failures: string[] = [];
-    results.forEach((result, i) => {
-      if (result.status === 'rejected') {
-        const beamer = targets[i];
-        const reason =
-          result.reason instanceof Error
-            ? result.reason.message
-            : String(result.reason);
-        failures.push(`${labelFor(beamer)}: ${reason}`);
-      }
-    });
-
-    sendBeamerFleet();
-    return failures;
-  };
-
-  ipcMain.removeHandler('refreshAllBeamers');
-  ipcMain.handle('refreshAllBeamers', () =>
-    runOverFleet((beamer) =>
-      refreshBeamer({ address: beamer.address, host: beamer.host }),
-    ),
+  ipcMain.handle('refreshBeamerStatus', (event, beamerId: string) =>
+    refreshBeamerStatus(beamerId),
   );
 
-  ipcMain.removeHandler('resetBeamer');
-  ipcMain.handle('resetBeamer', async (event, beamerId: string) => {
-    const existing = beamers.get(beamerId);
-    if (!existing) {
-      throw new Error('That beamer is no longer advertising itself.');
-    }
-    const base = { address: existing.address, host: existing.host };
-    await resetBeamer(toBeamerOrigin(base.address));
+  ipcMain.removeHandler('refreshAllBeamers');
+  ipcMain.handle('refreshAllBeamers', () => refreshAllBeamers());
 
-    try {
-      await refreshBeamer(base);
-    } catch {
-      // The next poll will catch up.
-    }
-    sendBeamerFleet();
-  });
+  ipcMain.removeHandler('resetBeamer');
+  ipcMain.handle('resetBeamer', (event, beamerId: string) =>
+    resetBeamer(beamerId),
+  );
 
   ipcMain.removeHandler('resetAllBeamers');
-  ipcMain.handle('resetAllBeamers', () =>
-    runOverFleet(async (beamer) => {
-      const base = { address: beamer.address, host: beamer.host };
-      await resetBeamer(toBeamerOrigin(base.address));
-      try {
-        await refreshBeamer(base);
-      } catch {
-        // The next poll will catch up.
-      }
-    }),
+  ipcMain.handle('resetAllBeamers', () => resetAllBeamers());
+
+  ipcMain.removeHandler('getMaxGamesFromIndex');
+  ipcMain.handle('getMaxGamesFromIndex', () => getMaxGamesFromIndex());
+
+  ipcMain.removeHandler('setMaxGamesFromIndex');
+  ipcMain.handle(
+    'setMaxGamesFromIndex',
+    (event, newMaxGamesFromIndex: number) => {
+      setMaxGamesFromIndex(newMaxGamesFromIndex);
+    },
   );
 
   const maybeEject = (currentDir: ReplayDir) => {

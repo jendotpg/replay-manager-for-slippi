@@ -31,7 +31,6 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { BeamerGame, BeamerPort, Beamer } from '../common/types';
 import { EMPTY_BEAMER_FLEET, characterNames } from '../common/constants';
-import { labelFor } from '../common/beamers';
 import getCharacterIcon from './getCharacterIcon';
 
 function beamerKey(beamer: Beamer) {
@@ -78,9 +77,7 @@ function BeamersTooltip({
         const warnings = showWarnings ? warningsFor(beamer) : '';
         return (
           <Typography key={beamerKey(beamer)} variant="caption">
-            {warnings
-              ? `${labelFor(beamer)} — ${warnings}`
-              : labelFor(beamer)}
+            {warnings ? `${beamer.label} — ${warnings}` : beamer.label}
           </Typography>
         );
       })}
@@ -175,9 +172,9 @@ export default function BeamerDialog({
   const [copying, setCopying] = useState('');
   const [refreshing, setRefreshing] = useState('');
   const [subscribing, setSubscribing] = useState('');
-  const [confirmingReset, setConfirmingReset] = useState<
-    Beamer | 'all' | null
-  >(null);
+  const [confirmingReset, setConfirmingReset] = useState<Beamer | 'all' | null>(
+    null,
+  );
   const [resetting, setResetting] = useState('');
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => Date.now());
@@ -304,9 +301,7 @@ export default function BeamerDialog({
   };
 
   const busy = Boolean(copying);
-  const erroring = fleet.beamers.filter(
-    (beamer) => beamer.health === 'error',
-  );
+  const erroring = fleet.beamers.filter((beamer) => beamer.health === 'error');
   const warning = fleet.beamers.filter((beamer) => beamer.health === 'warn');
 
   let confirmingResetCount =
@@ -476,8 +471,8 @@ export default function BeamerDialog({
                 }
                 const beamerDetail = beamer.beamerId || beamer.host;
                 const beamerTitle = beamerDetail
-                  ? `${labelFor(beamer)} · ${beamerDetail}`
-                  : labelFor(beamer);
+                  ? `${beamer.label} · ${beamerDetail}`
+                  : beamer.label;
                 return (
                   <TableRow
                     hover
@@ -511,7 +506,7 @@ export default function BeamerDialog({
                             variant="body2"
                             sx={{ maxWidth: 220 }}
                           >
-                            {labelFor(beamer)}
+                            {beamer.label}
                           </Typography>
                         </Tooltip>
                         {copying === beamerKey(beamer) && (
@@ -638,9 +633,7 @@ export default function BeamerDialog({
         <DialogTitle>
           {confirmingReset === 'all'
             ? `Erase all ${fleet.beamers.length} beamers?`
-            : `Erase ${
-                confirmingReset ? labelFor(confirmingReset) : 'beamer'
-              }?`}
+            : `Erase ${confirmingReset ? confirmingReset.label : 'beamer'}?`}
         </DialogTitle>
         <DialogContent>
           <Alert severity="warning">
@@ -650,7 +643,7 @@ export default function BeamerDialog({
           </Alert>
           {confirmingReset === 'all' && (
             <DialogContentText marginTop="8px" variant="body2">
-              {fleet.beamers.map((beamer) => labelFor(beamer)).join(', ')}
+              {fleet.beamers.map((beamer) => beamer.label).join(', ')}
             </DialogContentText>
           )}
           <DialogContentText marginTop="8px" variant="body2">
