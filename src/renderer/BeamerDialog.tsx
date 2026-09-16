@@ -39,6 +39,11 @@ import {
 } from '../common/constants';
 import getCharacterIcon from './getCharacterIcon';
 
+type BeamerBusy = {
+  kind: 'copy' | 'refresh' | 'subscribe' | 'reset';
+  target: string; // 'all' or a beamer id
+};
+
 function beamerKey(beamer: Beamer) {
   return beamer.beamerId || beamer.address;
 }
@@ -170,13 +175,10 @@ export default function BeamerDialog({
   onClose: () => void;
 }) {
   const [fleet, setFleet] = useState(EMPTY_BEAMER_FLEET);
-  const [copying, setCopying] = useState('');
-  const [refreshing, setRefreshing] = useState('');
-  const [subscribing, setSubscribing] = useState('');
+  const [busyWith, setBusyWith] = useState<BeamerBusy | null>(null);
   const [confirmingReset, setConfirmingReset] = useState<Beamer | 'all' | null>(
     null,
   );
-  const [resetting, setResetting] = useState('');
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const [maxGamesFromIndex, setMaxGamesFromIndex] = useState(4);
@@ -224,7 +226,7 @@ export default function BeamerDialog({
   }, [open]);
 
   const select = async (beamerId: string) => {
-    setCopying(beamerId);
+    setBusyWith({ kind: 'copy', target: beamerId });
     setError('');
     try {
       await window.electron.selectBeamer(beamerId);
@@ -232,24 +234,24 @@ export default function BeamerDialog({
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
-      setCopying('');
+      setBusyWith(null);
     }
   };
 
   const refresh = async (beamerId: string) => {
-    setRefreshing(beamerId);
+    setBusyWith({ kind: 'refresh', target: beamerId });
     setError('');
     try {
       await window.electron.refreshBeamerStatus(beamerId);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
-      setRefreshing('');
+      setBusyWith(null);
     }
   };
 
   const toggleSubscribe = async (beamer: Beamer) => {
-    setSubscribing(beamerKey(beamer));
+    setBusyWith({ kind: 'subscribe', target: beamerKey(beamer) });
     setError('');
     try {
       await window.electron.setBeamerSubscribed(
@@ -259,12 +261,12 @@ export default function BeamerDialog({
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
-      setSubscribing('');
+      setBusyWith(null);
     }
   };
 
   const refreshAll = async () => {
-    setRefreshing('all');
+    setBusyWith({ kind: 'refresh', target: 'all' });
     setError('');
     try {
       const failures = await window.electron.refreshAllBeamers();
@@ -274,25 +276,25 @@ export default function BeamerDialog({
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
-      setRefreshing('');
+      setBusyWith(null);
     }
   };
 
   const reset = async (beamer: Beamer) => {
-    setResetting(beamerKey(beamer));
+    setBusyWith({ kind: 'reset', target: beamerKey(beamer) });
     setError('');
     try {
       await window.electron.resetBeamer(beamerKey(beamer));
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
-      setResetting('');
+      setBusyWith(null);
       setConfirmingReset(null);
     }
   };
 
   const resetAll = async () => {
-    setResetting('all');
+    setBusyWith({ kind: 'reset', target: 'all' });
     setError('');
     try {
       const failures = await window.electron.resetAllBeamers();
@@ -302,12 +304,15 @@ export default function BeamerDialog({
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
-      setResetting('');
+      setBusyWith(null);
       setConfirmingReset(null);
     }
   };
 
-  const busy = Boolean(copying);
+  const busy = busyWith?.kind === 'copy';
+  const busyKind = (kind: BeamerBusy['kind']) => busyWith?.kind === kind;
+  const busyTarget = (kind: BeamerBusy['kind'], target: string) =>
+    busyWith?.kind === kind && busyWith.target === target;
   const erroringBeamers = fleet.beamers.filter(
     (beamer) => beamer.health === 'error',
   );
@@ -331,7 +336,7 @@ export default function BeamerDialog({
       maxWidth="md"
       open={open}
       onClose={() => {
-        if (!busy) {
+        if (!busyWith) {
           onClose();
         }
       }}
@@ -415,11 +420,11 @@ export default function BeamerDialog({
               >
                 <span>
                   <IconButton
-                    disabled={busy || Boolean(refreshing) || Boolean(resetting)}
+                    disabled={busy || busyKind('refresh') || busyKind('reset')}
                     onClick={refreshAll}
                     size="small"
                   >
-                    {refreshing === 'all' ? (
+                    {busyTarget('refresh', 'all') ? (
                       <CircularProgress size="20px" />
                     ) : (
                       <Refresh />
@@ -434,7 +439,7 @@ export default function BeamerDialog({
                 <span>
                   <Button
                     color="error"
-                    disabled={busy || Boolean(resetting)}
+                    disabled={busy || busyKind('reset')}
                     onClick={() => setConfirmingReset('all')}
                     size="small"
                     startIcon={<DeleteForever />}
@@ -476,7 +481,7 @@ export default function BeamerDialog({
                 let subscribeIcon = (
                   <NotificationsNone color="action" fontSize="small" />
                 );
-                if (subscribing === beamerKey(beamer)) {
+                if (busyTarget('subscribe', beamerKey(beamer))) {
                   subscribeIcon = <CircularProgress size="20px" />;
                 } else if (beamer.subscribed) {
                   subscribeIcon = (
@@ -501,7 +506,9 @@ export default function BeamerDialog({
                     <TableCell padding="checkbox">
                       <span>
                         <IconButton
-                          disabled={busy || subscribing === beamerKey(beamer)}
+                          disabled={
+                            busy || busyTarget('subscribe', beamerKey(beamer))
+                          }
                           onClick={(event) => {
                             event.stopPropagation();
                             toggleSubscribe(beamer);
@@ -523,7 +530,7 @@ export default function BeamerDialog({
                             {beamer.label}
                           </Typography>
                         </Tooltip>
-                        {copying === beamerKey(beamer) && (
+                        {busyTarget('copy', beamerKey(beamer)) && (
                           <CircularProgress size="16px" />
                         )}
                       </Stack>
@@ -575,14 +582,14 @@ export default function BeamerDialog({
                         <span>
                           <IconButton
                             disabled={
-                              busy || Boolean(refreshing) || Boolean(resetting)
+                              busy || busyKind('refresh') || busyKind('reset')
                             }
                             onClick={(event) => {
                               event.stopPropagation();
                               refresh(beamerKey(beamer));
                             }}
                           >
-                            {refreshing === beamerKey(beamer) ? (
+                            {busyTarget('refresh', beamerKey(beamer)) ? (
                               <CircularProgress size="24px" />
                             ) : (
                               <Refresh />
@@ -595,13 +602,13 @@ export default function BeamerDialog({
                       <Tooltip arrow title="Erase this beamer's replays">
                         <span>
                           <IconButton
-                            disabled={busy || Boolean(resetting)}
+                            disabled={busy || busyKind('reset')}
                             onClick={(event) => {
                               event.stopPropagation();
                               setConfirmingReset(beamer);
                             }}
                           >
-                            {resetting === beamerKey(beamer) ? (
+                            {busyTarget('reset', beamerKey(beamer)) ? (
                               <CircularProgress size="24px" />
                             ) : (
                               <DeleteForever color="error" />
@@ -639,7 +646,7 @@ export default function BeamerDialog({
       <Dialog
         open={Boolean(confirmingReset)}
         onClose={() => {
-          if (!resetting) {
+          if (!busyKind('reset')) {
             setConfirmingReset(null);
           }
         }}
@@ -668,16 +675,20 @@ export default function BeamerDialog({
         </DialogContent>
         <DialogActions>
           <Button
-            disabled={Boolean(resetting)}
+            disabled={busyKind('reset')}
             onClick={() => setConfirmingReset(null)}
           >
             Cancel
           </Button>
           <Button
             color="error"
-            disabled={Boolean(resetting)}
+            disabled={busyKind('reset')}
             endIcon={
-              resetting ? <CircularProgress size="24px" /> : <DeleteForever />
+              busyKind('reset') ? (
+                <CircularProgress size="24px" />
+              ) : (
+                <DeleteForever />
+              )
             }
             onClick={() => {
               if (confirmingReset === 'all') {
