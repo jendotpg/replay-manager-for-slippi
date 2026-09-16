@@ -212,6 +212,7 @@ export default function setupIPCs(
       top ? top.display : '',
       top ? top.dirType : 'local',
       top?.dirType === 'beamer' ? top.beamerId : '',
+      top ? top.dir : '',
     );
   }
 

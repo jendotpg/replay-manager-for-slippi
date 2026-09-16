@@ -407,6 +407,7 @@ const electronHandler = {
       display: string,
       dirType: DirType,
       beamerId: string,
+      dir: string,
     ) => void,
   ) => {
     ipcRenderer.removeAllListeners('replayDir');

@@ -281,7 +281,9 @@ function Hello() {
     useState(true);
 
   // initial state
-  const [display, setDisplay] = useState('');
+  const [dir, setDir] = useState('');
+  const [dirLabel, setDirLabel] = useState('');
+  const [refreshingBeamer, setRefreshingBeamer] = useState(false);
   const [dirInit, setDirInit] = useState(false);
   const [dirType, setDirType] = useState<DirType>('local');
   const [selectedBeamer, setSelectedBeamer] = useState('');
@@ -421,7 +423,8 @@ function Hello() {
 
       // initial state
       const replaysDir = await replaysDirPromise;
-      setDisplay(replaysDir);
+      setDir(replaysDir);
+      setDirLabel(replaysDir);
       setDirInit(replaysDir.length > 0);
       setCopyDir(await copyDirPromise);
       setHost(await hostPromise);
@@ -717,7 +720,7 @@ function Hello() {
   const chooseDir = async () => {
     setGettingReplays(true);
     const newDir = await window.electron.chooseReplaysDir();
-    if (newDir && newDir !== display) {
+    if (newDir && newDir !== dir) {
       const {
         replays: newReplays,
         invalidReplays: newInvalidReplays,
@@ -728,7 +731,8 @@ function Hello() {
       setBatchActives(
         getNewBatchActives(newReplays.filter((replay) => replay.selected)),
       );
-      setDisplay(newDir);
+      setDir(newDir);
+      setDirLabel(newDir);
       setDirType('local');
       setSelectedBeamer('');
       setDirExists(true);
@@ -854,7 +858,7 @@ function Hello() {
   };
 
   const wouldDeleteCopyDir =
-    display.length > 0 && copyDir.length > 0 && display === copyDir;
+    dir.length > 0 && copyDir.length > 0 && dir === copyDir;
   const isUsb = dirType === 'usb';
   const isBeamer = dirType === 'beamer';
   let deleteBlockedReason = '';
@@ -863,10 +867,16 @@ function Hello() {
   } else if (wouldDeleteCopyDir) {
     deleteBlockedReason = 'Would delete copy folder';
   }
+  let replaysFolderLabel = dirLabel || 'Set replays folder...';
+  if (undoSubdir) {
+    replaysFolderLabel = `Fixing ${undoSubdir}`;
+  } else if (isBeamer) {
+    replaysFolderLabel = `Beamer ${dirLabel}`;
+  }
   const [ejecting, setEjecting] = useState(false);
   const [ejected, setEjected] = useState(false);
   const deleteDir = async (usedFilenames: string[]) => {
-    if (!display || wouldDeleteCopyDir || isBeamer) {
+    if (!dirLabel || wouldDeleteCopyDir || isBeamer) {
       return;
     }
 
@@ -882,7 +892,7 @@ function Hello() {
     }
   };
   const deleteSelected = async (used: boolean) => {
-    if (!display || wouldDeleteCopyDir || isBeamer) {
+    if (!dirLabel || wouldDeleteCopyDir || isBeamer) {
       return;
     }
 
@@ -898,13 +908,15 @@ function Hello() {
     }
   };
   const deleteUndo = async () => {
-    if (!display || !undoSubdir || wouldDeleteCopyDir) {
+    if (!dirLabel || !undoSubdir || wouldDeleteCopyDir) {
       return;
     }
 
     setDirDeleting(true);
     try {
-      setDisplay(await window.electron.deleteUndoSrcDst());
+      const restoredDir = await window.electron.deleteUndoSrcDst();
+      setDir(restoredDir);
+      setDirLabel(restoredDir);
       setUndoSubdir('');
       refreshReplays(true);
     } finally {
@@ -1005,22 +1017,25 @@ function Hello() {
   }, [confirmedCopySettings, copyDirSet, selectedSet, tournamentSet]);
 
   useEffect(() => {
-    window.electron.onReplayDir((e, newDisplay, newDirType, newBeamerId) => {
-      if (!undoSubdir) {
-        setDisplay(newDisplay);
-        setDirType(newDirType);
-        setSelectedBeamer(newDirType === 'beamer' ? newBeamerId : '');
-        setWasDeleted(false);
-        if (newDisplay) {
-          refreshReplays(true);
-        } else {
-          setDirExists(false);
-          setGuideBackdropOpen(false);
-          setGuideState(GuideState.NONE);
+    window.electron.onReplayDir(
+      (e, newDisplay, newDirType, newBeamerId, newDir) => {
+        if (!undoSubdir) {
+          setDir(newDir);
+          setDirLabel(newDisplay);
+          setDirType(newDirType);
+          setSelectedBeamer(newDirType === 'beamer' ? newBeamerId : '');
+          setWasDeleted(false);
+          if (newDisplay) {
+            refreshReplays(true);
+          } else {
+            setDirExists(false);
+            setGuideBackdropOpen(false);
+            setGuideState(GuideState.NONE);
+          }
+          setEjected(false);
         }
-        setEjected(false);
-      }
-    });
+      },
+    );
   }, [refreshReplays, undoSubdir]);
 
   const availablePlayers: PlayerOverrides[] = [];
@@ -2106,15 +2121,7 @@ function Hello() {
               <InputBase
                 disabled
                 size="small"
-                value={(() => {
-                  if (undoSubdir) {
-                    return `Fixing ${undoSubdir}`;
-                  }
-                  if (isBeamer) {
-                    return `Beamer ${display}`;
-                  }
-                  return display || 'Set replays folder...';
-                })()}
+                value={replaysFolderLabel}
                 style={{ flexGrow: 1 }}
               />
               {ejected && <Typography variant="body2">Ejected!</Typography>}
@@ -2125,7 +2132,10 @@ function Hello() {
                   <Tooltip arrow title="Cancel">
                     <IconButton
                       onClick={async () => {
-                        setDisplay(await window.electron.setUndoSubdir(''));
+                        const restoredDir =
+                          await window.electron.setUndoSubdir('');
+                        setDir(restoredDir);
+                        setDirLabel(restoredDir);
                         setUndoSubdir('');
                         refreshReplays(true);
                       }}
@@ -2136,7 +2146,7 @@ function Hello() {
                 ))}
               {!undoSubdir && (
                 <>
-                  {display && (
+                  {dirLabel && (
                     <Tooltip
                       arrow
                       title={
@@ -2162,7 +2172,7 @@ function Hello() {
                       </span>
                     </Tooltip>
                   )}
-                  {display &&
+                  {dirLabel &&
                     dirExists &&
                     !gettingReplays &&
                     (replays.length > 0 || invalidReplays.length > 0) &&
@@ -2250,7 +2260,7 @@ function Hello() {
                         </div>
                       </Tooltip>
                     ))}
-                  {display && !gettingReplays && (
+                  {dirLabel && !gettingReplays && (
                     <Tooltip
                       arrow
                       title={
@@ -2259,24 +2269,34 @@ function Hello() {
                           : 'Refresh replays'
                       }
                     >
-                      <IconButton
-                        onClick={async () => {
-                          if (selectedBeamer) {
-                            try {
-                              await window.electron.refreshFromBeamer(
-                                selectedBeamer,
-                              );
-                            } catch (e: any) {
-                              showErrorDialog([
-                                e instanceof Error ? e.message : e,
-                              ]);
+                      <span>
+                        <IconButton
+                          disabled={refreshingBeamer}
+                          onClick={async () => {
+                            if (selectedBeamer) {
+                              setRefreshingBeamer(true);
+                              try {
+                                await window.electron.refreshFromBeamer(
+                                  selectedBeamer,
+                                );
+                              } catch (e: any) {
+                                showErrorDialog([
+                                  e instanceof Error ? e.message : e,
+                                ]);
+                              } finally {
+                                setRefreshingBeamer(false);
+                              }
                             }
-                          }
-                          refreshReplays();
-                        }}
-                      >
-                        <Refresh />
-                      </IconButton>
+                            refreshReplays();
+                          }}
+                        >
+                          {refreshingBeamer ? (
+                            <CircularProgress size="24px" />
+                          ) : (
+                            <Refresh />
+                          )}
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   )}
                   {gettingReplays ? (
@@ -2505,7 +2525,7 @@ function Hello() {
         spacing="8px"
       >
         <TopColumn flexGrow={1} minWidth="600px">
-          {display &&
+          {dirLabel &&
             !gettingReplays &&
             (dirExists ? (
               <>
@@ -2636,7 +2656,7 @@ function Hello() {
                   : 'Replays folder not found.'}
               </Alert>
             ))}
-          {display && gettingReplays && (
+          {dirLabel && gettingReplays && (
             <CircularProgress
               size="24px"
               style={{
@@ -3351,9 +3371,10 @@ function Hello() {
                     disableGutters
                     onClick={async () => {
                       try {
-                        setDisplay(
-                          await window.electron.setUndoSubdir(reportedSubdir),
-                        );
+                        const restoredDir =
+                          await window.electron.setUndoSubdir(reportedSubdir);
+                        setDir(restoredDir);
+                        setDirLabel(restoredDir);
                         setUndoSubdir(reportedSubdir);
                         setUndoDialogOpen(false);
                         setDirType('local');
