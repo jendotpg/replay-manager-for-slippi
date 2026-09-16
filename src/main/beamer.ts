@@ -393,7 +393,8 @@ function subscribeBeamerEvents(callbacks: {
   };
 }
 
-export function toBeamerOrigin(addressOrHost: string) {
+function toBeamerOrigin(addressOrHost: string) {
+  // beamers have no TLS by design - strip https and force http
   const trimmed = addressOrHost
     .trim()
     .replace(/^https?:\/\//i, '')
@@ -434,7 +435,7 @@ async function fetchIndex(origin: string) {
   throw last;
 }
 
-export async function getBeamerIndex(origin: string) {
+async function getBeamerIndex(origin: string) {
   let response;
   try {
     response = await fetchIndex(origin);
@@ -500,7 +501,7 @@ export async function getBeamerIndex(origin: string) {
   };
 }
 
-export function beamerLabel(origin: string, beamerId: string) {
+function beamerLabel(origin: string, beamerId: string) {
   return beamerId || origin.replace(/^http:\/\//, '');
 }
 
@@ -508,13 +509,13 @@ function labelFor(beamer: Pick<Beamer, 'beamerName' | 'beamerId' | 'address'>) {
   return beamer.beamerName || beamer.beamerId || beamer.address;
 }
 
-export function beamerDirFor(
-  cacheRoot: string,
-  origin: string,
-  beamerId: string,
-) {
+function beamerDirFor(cacheRoot: string, origin: string, beamerId: string) {
   const name = beamerLabel(origin, beamerId).replace(/:/g, '_');
-  return path.join(cacheRoot, sanitize(name) || 'beamer');
+  const label = sanitize(name);
+  if (!label) {
+    throw new Error(`Could not derive a cache directory from ${origin}.`);
+  }
+  return path.join(cacheRoot, label);
 }
 
 async function hasCompleteFile(dest: string, file: BeamerFile) {
@@ -526,7 +527,7 @@ async function hasCompleteFile(dest: string, file: BeamerFile) {
   }
 }
 
-export async function firstMissingFile(dest: string, files: BeamerFile[]) {
+async function firstMissingFile(dest: string, files: BeamerFile[]) {
   const present = await Promise.all(
     files.map((file) => hasCompleteFile(dest, file)),
   );
@@ -534,7 +535,7 @@ export async function firstMissingFile(dest: string, files: BeamerFile[]) {
   return i >= 0 ? files[i] : null;
 }
 
-export async function listCachedReplays(dest: string) {
+async function listCachedReplays(dest: string) {
   try {
     return (await readdir(dest, { withFileTypes: true }))
       .filter((dirent) => dirent.isFile() && dirent.name.endsWith('.slp'))
@@ -544,7 +545,7 @@ export async function listCachedReplays(dest: string) {
   }
 }
 
-export async function pruneStaleReplays(
+async function pruneStaleReplays(
   dest: string,
   cached: string[],
   indexNames: string[],
@@ -668,7 +669,7 @@ type BeamerWave = {
 let onStatus: (status: DownloadStatus) => void;
 let onFileComplete: (dest: string) => void;
 
-export function initBeamerDownloadQueue(deps: {
+function initBeamerDownloadQueue(deps: {
   onStatus: (status: DownloadStatus) => void;
   onFileComplete: (dest: string) => void;
 }) {
@@ -976,7 +977,7 @@ function drain() {
   runJob(job);
 }
 
-export function cancelBeamerDownloads() {
+function cancelBeamerDownloads() {
   const removed = queue.length > 0;
   queue.length = 0;
   if (active) {
@@ -995,7 +996,7 @@ export function cancelBeamerDownloads() {
   finishWave();
 }
 
-export const enqueueBeamerDownload = (
+const enqueueBeamerDownload = (
   request: BeamerDownloadRequest,
   priority: JobPriority = 'low',
 ) => {
@@ -1022,7 +1023,7 @@ export const enqueueBeamerDownload = (
   drain();
 };
 
-export const enqueueBeamerPull = async (
+const enqueueBeamerPull = async (
   dest: string,
   files: BeamerFile[],
   beamerId: string,
@@ -1078,7 +1079,7 @@ export const enqueueBeamerPull = async (
   });
 };
 
-export function prioritizeBeamer(beamerId: string) {
+function prioritizeBeamer(beamerId: string) {
   let raisedQueued = false;
   queue.forEach((job) => {
     if (job.beamerId === beamerId && job.priority === 'low') {
@@ -1107,7 +1108,7 @@ export function cancelBeamerDownload() {
   cancelBeamerDownloads();
 }
 
-export const clearBeamerDownloadQueue = () => {
+const clearBeamerDownloadQueue = () => {
   queue.length = 0;
   clearWake();
   resetWave();
