@@ -21,7 +21,7 @@ import {
   ReplayDir,
 } from '../common/types';
 import { assertInteger } from '../common/asserts';
-import { DownloadError, downloadFile, sizeOf } from './download';
+import { downloadFile, sizeOf, toDownloadError } from './download';
 
 const INDEX_ATTEMPTS = 3;
 const INDEX_RETRY_MS = 1000;
@@ -950,12 +950,7 @@ const runJob = (job: BeamerDownloadJob) => {
         report();
         return;
       }
-      const failure =
-        error instanceof DownloadError
-          ? error
-          : new DownloadError(
-              error instanceof Error ? error.message : String(error),
-            );
+      const failure = toDownloadError(error);
       if (failure.retryAfterMs !== undefined && job.requeues < MAX_REQUEUES) {
         active = null;
         job.requeues += 1;
@@ -979,7 +974,7 @@ const runJob = (job: BeamerDownloadJob) => {
 };
 
 // TODO: look over this function again. i don't like it.
-function drain() {
+const drain = () => {
   if (active) {
     return;
   }
@@ -1002,7 +997,7 @@ function drain() {
   queue.splice(queue.indexOf(job), 1);
   clearWake();
   runJob(job);
-}
+};
 
 function cancelBeamerDownloads() {
   const removed = queue.length > 0;

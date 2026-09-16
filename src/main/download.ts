@@ -45,6 +45,12 @@ export class DownloadError extends Error {
   }
 }
 
+export function toDownloadError(error: unknown) {
+  return error instanceof DownloadError
+    ? error
+    : new DownloadError(error instanceof Error ? error.message : String(error));
+}
+
 function networkError(error: unknown) {
   const code = (error as any)?.cause?.code ?? (error as any)?.code;
   if (typeof code === 'string' && UNREACHABLE_CODES.has(code)) {
@@ -99,13 +105,14 @@ function parseRetryAfter(value: string | null): number | undefined {
   }
   return Math.max(0, date - Date.now());
 }
+const STATUS_DISCARD_PARTIAL = new Set([404]);
 
 function statusError(response: Response) {
   const { status } = response;
   const retryable = status >= 500 || status === 408 || status === 429;
   return new DownloadError(`HTTP ${status}`, {
     retryable,
-    discardPartial: status === 404,
+    discardPartial: STATUS_DISCARD_PARTIAL.has(status),
     retryAfterMs: retryable
       ? parseRetryAfter(response.headers.get('retry-after'))
       : undefined,
@@ -200,14 +207,14 @@ async function downloadAttempt(
 
     let written = start;
     watchdog(STALL_TIMEOUT_MS);
-    const counted = Readable.fromWeb(response.body as any).map(
-      (chunk: Buffer) => {
-        written += chunk.length;
-        watchdog(STALL_TIMEOUT_MS);
-        options.onChunk?.(written);
-        return chunk;
-      },
-    );
+    const counted = Readable.fromWeb(
+      response.body as import('node:stream/web').ReadableStream,
+    ).map((chunk: Buffer) => {
+      written += chunk.length;
+      watchdog(STALL_TIMEOUT_MS);
+      options.onChunk?.(written);
+      return chunk;
+    });
 
     try {
       await pipeline(
@@ -254,12 +261,7 @@ export async function downloadFile(
       await rename(part, dest);
       return;
     } catch (error) {
-      const failure =
-        error instanceof DownloadError
-          ? error
-          : new DownloadError(
-              error instanceof Error ? error.message : String(error),
-            );
+      const failure = toDownloadError(error);
       if (failure.discardPartial) {
         // eslint-disable-next-line no-await-in-loop
         await discard(part);
