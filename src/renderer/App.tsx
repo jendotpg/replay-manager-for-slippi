@@ -88,7 +88,6 @@ import {
   ReportSettings,
   SelectedSetChain,
   Set,
-  SlpDownloadStatus,
   DownloadStatus,
   StartggSet,
   State,
@@ -222,14 +221,14 @@ function applyAllReplaysSelected(allReplays: Replay[], selected: boolean) {
 }
 
 function Hello() {
-  const [slpDownloadStatus, setSlpDownloadStatus] = useState<SlpDownloadStatus>(
-    { status: 'idle' },
-  );
+  const [slpDownloadStatus, setSlpDownloadStatus] = useState<DownloadStatus>({
+    status: 'idle',
+  });
   const [beamerDownloadStatus, setBeamerDownloadStatus] =
     useState<DownloadStatus>({ status: 'idle' });
 
   useEffect(() => {
-    const handler = (_event: any, status: SlpDownloadStatus) => {
+    const handler = (_event: any, status: DownloadStatus) => {
       setSlpDownloadStatus(status);
     };
     window.electron.onSlpDownloadStatus(handler);

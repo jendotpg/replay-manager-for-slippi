@@ -42,7 +42,6 @@ import {
   ReportSettings,
   SelectedSetChain,
   Set as MatchSet,
-  SlpDownloadStatus,
   DownloadStatus,
   StartggGame,
   StartggSet,
@@ -226,7 +225,7 @@ export default function setupIPCs(
     announceReplayDir();
   }
 
-  let slpDownloadStatus: SlpDownloadStatus = { status: 'idle' };
+  let slpDownloadStatus: DownloadStatus = { status: 'idle' };
 
   async function handleProtocolLoadSLPs(slpUrls: string[]) {
     await mkdir(protocolLoadFullPath, { recursive: true });
@@ -237,9 +236,11 @@ export default function setupIPCs(
     const send = (fileName: string) => {
       slpDownloadStatus = {
         status: 'downloading',
-        slpUrls,
+        sources: slpUrls,
         progress: Math.round((completed / total) * 100),
         currentFile: fileName,
+        filesDone: completed - 1,
+        totalFiles: total,
       };
       if (mainWindow) {
         mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
@@ -263,9 +264,11 @@ export default function setupIPCs(
 
     slpDownloadStatus = {
       status: 'downloading',
-      slpUrls,
+      sources: slpUrls,
       progress: 100,
       currentFile: '',
+      filesDone: total,
+      totalFiles: total,
     };
     if (mainWindow) {
       mainWindow.webContents.send('slp-download-status', slpDownloadStatus);

@@ -14,7 +14,6 @@ import {
   Replay,
   ReportSettings,
   Set,
-  SlpDownloadStatus,
   DownloadStatus,
   StartggSet,
   Tournament,
@@ -39,7 +38,7 @@ const electronHandler = {
   setOfflineModePassword: (offlineModePassword: string): Promise<void> =>
     ipcRenderer.invoke('setOfflineModePassword', offlineModePassword),
   onSlpDownloadStatus: (
-    callback: (event: IpcRendererEvent, status: SlpDownloadStatus) => void,
+    callback: (event: IpcRendererEvent, status: DownloadStatus) => void,
   ) => {
     ipcRenderer.removeAllListeners('slp-download-status');
     ipcRenderer.on('slp-download-status', callback);

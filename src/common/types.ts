@@ -436,17 +436,6 @@ export enum WebSocketServerStatus {
   STARTED,
 }
 
-export type SlpDownloadStatus =
-  | { status: 'idle' }
-  | {
-      status: 'downloading';
-      slpUrls: string[];
-      progress: number;
-      currentFile: string;
-    }
-  | { status: 'error'; failedFiles: string[] }
-  | { status: 'success' };
-
 export type DownloadStatus =
   | { status: 'idle' }
   | {
@@ -454,8 +443,8 @@ export type DownloadStatus =
       progress: number;
       currentFile: string;
       sources: string[];
-      filesDone?: number;
-      totalFiles?: number;
+      filesDone: number;
+      totalFiles: number;
       attempt?: number;
     }
   | { status: 'error'; failedFiles: string[] }
