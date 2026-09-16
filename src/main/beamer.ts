@@ -800,9 +800,6 @@ const report = (force = false) => {
     progress = (wave.doneFiles / wave.totalFiles) * 100;
   }
 
-  // TODO: whether the current pull is user-initiated is knowable
-  // here via the active job's batchNumber > 0 - surface it on DownloadStatus
-  // when un-disabling the "Download next replay" row during low-priority pulls.
   onStatus({
     status: 'downloading',
     progress,
@@ -811,6 +808,7 @@ const report = (force = false) => {
     filesDone: wave.doneFiles,
     totalFiles: wave.totalFiles,
     attempt: active && active.job.attempt > 1 ? active.job.attempt : undefined,
+    userInitiated: Boolean(active && active.job.batchNumber > 0),
   });
 };
 
@@ -973,30 +971,26 @@ const runJob = (job: BeamerDownloadJob) => {
     });
 };
 
-// TODO: look over this function again. i don't like it.
 const drain = () => {
   if (active) {
     return;
   }
-  const now = Date.now();
-  const eligible = queue.filter((job) => job.availableAt <= now);
-  if (eligible.length === 0) {
-    if (queue.length > 0) {
-      const soonest = Math.min(...queue.map((job) => job.availableAt));
-      scheduleWake(soonest - now);
-    }
-    return;
-  }
-  eligible.sort(
+  queue.sort(
     (a, b) =>
       priorityRank(b.priority) - priorityRank(a.priority) ||
       b.batchNumber - a.batchNumber ||
       a.seq - b.seq,
   );
-  const job = eligible[0];
-  queue.splice(queue.indexOf(job), 1);
-  clearWake();
-  runJob(job);
+  const i = queue.findIndex((job) => job.availableAt <= Date.now());
+  if (i >= 0) {
+    const [job] = queue.splice(i, 1);
+    clearWake();
+    runJob(job);
+    return;
+  }
+  if (queue.length > 0) {
+    scheduleWake(Math.min(...queue.map((job) => job.availableAt)) - Date.now());
+  }
 };
 
 function cancelBeamerDownloads() {

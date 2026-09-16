@@ -2514,7 +2514,8 @@ function Hello() {
                   nextReplayName={beamerNextReplay}
                   downloadingNextReplay={
                     downloadingNextReplay ||
-                    beamerDownloadStatus.status === 'downloading'
+                    (beamerDownloadStatus.status === 'downloading' &&
+                      beamerDownloadStatus.userInitiated)
                   }
                   onDownloadNext={downloadNextReplay}
                   numAvailablePlayers={availablePlayers.length}
