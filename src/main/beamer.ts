@@ -1152,14 +1152,6 @@ const announceIfActive = (dest: string) => {
   }
 };
 
-export function initBeamers(init: BeamerDeps) {
-  deps = init;
-  initBeamerDownloadQueue({
-    onStatus: (status) => deps.sendDownloadStatus(status),
-    onFileComplete: (dest) => announceIfActive(dest),
-  });
-}
-
 const originByBeamer = new Map<string, string>();
 const nameByBeamer = new Map<string, string>();
 
@@ -1179,6 +1171,7 @@ const beamerLabelFor = (beamerId: string) => {
 
 const beamers = new Map<string, Beamer>();
 let beamerBrowse: BeamerBrowseHandle | null = null;
+let beamerBrowseOpen = false; // the fleet dialog is holding the browser open
 let beamerPollTimer: NodeJS.Timeout | null = null;
 let beamerFleetError = '';
 
@@ -1316,9 +1309,6 @@ const pollBeamerFleet = async () => {
 let beamerEvents: BeamerEventsHandle | null = null;
 const statusRefreshInFlight = new Set<string>();
 
-const beamerSelected = () =>
-  deps.getReplayDirs().some((replayDir) => replayDir.dirType === 'beamer');
-
 const refreshBeamerForEvent = async (beamerId: string) => {
   const beamer = beamers.get(beamerId);
   if (!beamer || statusRefreshInFlight.has(beamerId)) {
@@ -1338,10 +1328,18 @@ const refreshBeamerForEvent = async (beamerId: string) => {
   }
 };
 
+const pullWanted = (beamerId: string) =>
+  subscribedBeamers.has(beamerId) ||
+  (deps.getAutoSubscribe() && !unsubscribed.has(beamerId));
+
 const onBeamerEvent = (event: BeamerEvent) => {
   refreshBeamerForEvent(event.beamerId).catch(() => {});
-  if (event.event === 'game_finished') {
-    const origin = subscribedBeamers.get(event.beamerId);
+  if (event.event === 'game_finished' && pullWanted(event.beamerId)) {
+    const beamer = beamers.get(event.beamerId);
+    const origin =
+      subscribedBeamers.get(event.beamerId) ||
+      originByBeamer.get(event.beamerId) ||
+      (beamer ? toBeamerOrigin(beamer.address) : '');
     if (origin) {
       try {
         enqueueBeamerDownload(
@@ -1362,7 +1360,7 @@ const onBeamerEvent = (event: BeamerEvent) => {
   }
 };
 
-const ensureBeamerEvents = () => {
+const ensureBeamerEvents = () => { // turned on as soon as a beamer is first seen 
   if (beamerEvents) {
     return;
   }
@@ -1374,44 +1372,7 @@ const ensureBeamerEvents = () => {
   });
 };
 
-const maybeStopBeamerEvents = () => {
-  if (
-    beamerEvents &&
-    !beamerBrowse &&
-    !beamerSelected() &&
-    subscribedBeamers.size === 0
-  ) {
-    beamerEvents.stop();
-    beamerEvents = null;
-  }
-};
-
-const stopBrowse = () => {
-  beamerBrowse?.stop();
-  beamerBrowse = null;
-  if (beamerPollTimer) {
-    clearInterval(beamerPollTimer);
-    beamerPollTimer = null;
-  }
-  beamers.clear();
-  beamerFleetError = '';
-  maybeStopBeamerEvents();
-};
-
-const selectedBeamerDir = (beamerId: string) => {
-  const current = deps
-    .getReplayDirs()
-    .find(
-      (replayDir) =>
-        replayDir.dirType === 'beamer' && replayDir.beamerId === beamerId,
-    );
-  if (!current) {
-    throw new Error('Those replays are no longer loaded from a Beamer.');
-  }
-  return current.dir;
-};
-
-export function startBeamerBrowse() {
+const startBeamerBrowser = () => {
   if (beamerBrowse) {
     return;
   }
@@ -1465,9 +1426,56 @@ export function startBeamerBrowse() {
       sendBeamerFleet();
     },
   });
-  beamerPollTimer = setInterval(() => {
-    pollBeamerFleet().catch(() => {});
-  }, FLEET_POLL_MS);
+  sendBeamerFleet();
+};
+
+const stopBeamerBrowser = () => {
+  beamerBrowse?.stop();
+  beamerBrowse = null;
+  beamerFleetError = '';
+};
+
+const beamerBrowseWanted = () =>
+  beamerBrowseOpen || deps.getAutoSubscribe() || subscribedBeamers.size > 0;
+
+const updateBeamerBrowser = () => {
+  if (beamerBrowseWanted()) {
+    startBeamerBrowser();
+  } else {
+    stopBeamerBrowser();
+  }
+};
+
+const stopBrowse = () => {
+  beamerBrowseOpen = false;
+  if (beamerPollTimer) {
+    clearInterval(beamerPollTimer);
+    beamerPollTimer = null;
+  }
+  updateBeamerBrowser();
+};
+
+const selectedBeamerDir = (beamerId: string) => {
+  const current = deps
+    .getReplayDirs()
+    .find(
+      (replayDir) =>
+        replayDir.dirType === 'beamer' && replayDir.beamerId === beamerId,
+    );
+  if (!current) {
+    throw new Error('Those replays are no longer loaded from a Beamer.');
+  }
+  return current.dir;
+};
+
+export function startBeamerBrowse() {
+  beamerBrowseOpen = true;
+  startBeamerBrowser();
+  if (!beamerPollTimer) {
+    beamerPollTimer = setInterval(() => {
+      pollBeamerFleet().catch(() => {});
+    }, FLEET_POLL_MS);
+  }
   sendBeamerFleet();
 }
 
@@ -1519,7 +1527,6 @@ export async function selectBeamer(beamerId: string) {
     usbKey: '',
     beamerId: indexBeamerId,
   });
-  ensureBeamerEvents();
 
   prioritizeBeamer(indexBeamerId);
   enqueueBeamerPull(
@@ -1606,7 +1613,6 @@ export async function clearReplayCache() {
   if (deps.getReplayDirs().some(cached)) {
     deps.removeReplayDirs(cached);
   }
-  maybeStopBeamerEvents();
   await wipeReplayCache(deps.replayCacheFullPath);
 }
 
@@ -1624,15 +1630,12 @@ function setBeamerSubscription(beamerId: string, subscribed: boolean) {
   } else {
     unsubscribed.add(beamerId);
     subscribedBeamers.delete(beamerId);
-    maybeStopBeamerEvents();
+    updateBeamerBrowser();
   }
 }
 
 export function setBeamerSubscribed(beamerId: string, subscribed: boolean) {
   setBeamerSubscription(beamerId, subscribed);
-  if (subscribed) {
-    ensureBeamerEvents();
-  }
   sendBeamerFleet();
 }
 
@@ -1648,10 +1651,10 @@ export function setBeamersAutoSubscribe(on: boolean) {
       rememberBeamerSubscription(toBeamerOrigin(beamer.address), beamer),
     );
     if (swept.length > 0) {
-      ensureBeamerEvents();
       sendBeamerFleet();
     }
   }
+  updateBeamerBrowser();
 }
 
 export async function refreshBeamerStatus(beamerId: string) {
@@ -1739,4 +1742,13 @@ export function setMaxGamesFromIndex(newMaxGamesFromIndex: number) {
   );
   deps.setMaxGamesPersisted(clamped);
   return clamped;
+}
+
+export function initBeamers(init: BeamerDeps) {
+  deps = init;
+  initBeamerDownloadQueue({
+    onStatus: (status) => deps.sendDownloadStatus(status),
+    onFileComplete: (dest) => announceIfActive(dest),
+  });
+  updateBeamerBrowser();
 }
