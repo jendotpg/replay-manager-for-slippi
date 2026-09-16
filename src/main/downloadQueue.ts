@@ -14,11 +14,12 @@ type DownloadJob = {
   name: string;
   url: string;
   size: number; // -1 when unknown
-  source: string; // station label, for the snackbar
+  beamerId: string;
+  beamerName: string;
   priority: number;
   batchNumber: number; // 0 for background jobs
   requeues: number;
-  attempt: number; 
+  attempt: number;
   written: number;
   availableAt: number;
   seq: number;
@@ -35,7 +36,8 @@ type BackgroundJob = {
   name: string;
   url: string;
   size: number;
-  source: string;
+  beamerId: string;
+  beamerName: string;
 };
 
 type Wave = {
@@ -44,7 +46,7 @@ type Wave = {
   totalBytes: number;
   doneBytes: number;
   unknown: number;
-  failures: Map<string, string>; // station -> reason
+  failures: Map<string, { label: string; reason: string }>; // beamerId -> label + reason
   cancelled: boolean;
 };
 
@@ -133,14 +135,14 @@ export function createDownloadQueue({
 
     const sources: string[] = [];
     const seen = new Set<string>();
-    if (active && active.job.source) {
-      seen.add(active.job.source);
-      sources.push(active.job.source);
+    if (active) {
+      seen.add(active.job.beamerName);
+      sources.push(active.job.beamerName);
     }
     queue.forEach((job) => {
-      if (job.source && !seen.has(job.source)) {
-        seen.add(job.source);
-        sources.push(job.source);
+      if (!seen.has(job.beamerName)) {
+        seen.add(job.beamerName);
+        sources.push(job.beamerName);
       }
     });
 
@@ -179,8 +181,8 @@ export function createDownloadQueue({
       onStatus({
         status: 'error',
         failedFiles: Array.from(
-          wave.failures,
-          ([source, reason]) => `${source} — ${reason}`,
+          wave.failures.values(),
+          (failure) => `${failure.label} — ${failure.reason}`,
         ),
       });
     } else if (wave.totalFiles > 0) {
@@ -207,7 +209,10 @@ export function createDownloadQueue({
       if (queue[i].batchNumber === batch.id && queue[i].batchNumber > 0) {
         wave.doneFiles += 1;
         wave.doneBytes += Math.max(queue[i].size, 0);
-        wave.failures.set(queue[i].source || queue[i].name, reason);
+        wave.failures.set(queue[i].beamerId, {
+          label: queue[i].beamerName,
+          reason,
+        });
         queue.splice(i, 1);
       }
     }
@@ -276,7 +281,7 @@ export function createDownloadQueue({
       .then(() => {
         wave.doneFiles += 1;
         wave.doneBytes += Math.max(job.size, 0);
-        wave.failures.delete(job.source || job.name);
+        wave.failures.delete(job.beamerId);
         onFileComplete(job.dest);
         finishActive(batch);
         return undefined;
@@ -310,7 +315,10 @@ export function createDownloadQueue({
         }
         wave.doneFiles += 1;
         wave.doneBytes += Math.max(job.size, 0);
-        wave.failures.set(job.source || job.name, failure.message);
+        wave.failures.set(job.beamerId, {
+          label: job.beamerName,
+          reason: failure.message,
+        });
         if (failure.unreachable && batch) {
           failRestOfBatch(batch, failure.message);
         }
@@ -355,9 +363,6 @@ export function createDownloadQueue({
       active.controller.abort();
       removed = true;
     }
-    // Every batch is a foreground batch: after its pending jobs are pulled,
-    // settle the ones that no longer have work. The aborted one settles in
-    // its own catch once the ABORT lands.
     batches.forEach((batch) => {
       if (!batch.settled && !outstanding(batch.id)) {
         finalizeIfDone(batch);
@@ -385,7 +390,8 @@ export function createDownloadQueue({
       name: job.name,
       url: job.url,
       size: job.size,
-      source: job.source,
+      beamerId: job.beamerId,
+      beamerName: job.beamerName,
       priority: BACKGROUND,
       batchNumber: 0,
       requeues: 0,
@@ -401,7 +407,8 @@ export function createDownloadQueue({
   const enqueueForegroundBatch = async (
     dest: string,
     files: BeamerFile[],
-    source: string,
+    beamerId: string,
+    beamerName: string,
   ): Promise<void> => {
     const present = await Promise.all(
       files.map((file) => hasCompleteFile(dest, file)),
@@ -441,7 +448,8 @@ export function createDownloadQueue({
           name: file.name,
           url: file.url,
           size: file.size,
-          source,
+          beamerId,
+          beamerName,
           priority: FOREGROUND,
           batchNumber,
           requeues: 0,

@@ -123,6 +123,7 @@ import {
   stopListeningAndSend,
 } from './host';
 import { assertInteger, assertString } from '../common/asserts';
+import { labelFor } from '../common/beamers';
 import { downloadFile, resolveHtmlPath } from './util';
 import {
   beamerDirFor,
@@ -222,7 +223,7 @@ export default function setupIPCs(
     const top =
       replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
     mainWindow.webContents.send(
-      'replaydir',
+      'replayDir',
       top ? top.display : '',
       top ? top.dirType : 'local',
       top?.dirType === 'beamer' ? top.beamerId : '',
@@ -233,6 +234,15 @@ export default function setupIPCs(
     originByBeamer.set(beamerId, origin);
     nameByBeamer.set(beamerId, name);
   }
+
+  const beamerLabelFor = (beamerId: string) => {
+    const remembered = nameByBeamer.get(beamerId);
+    if (remembered) {
+      return remembered;
+    }
+    const origin = originByBeamer.get(beamerId);
+    return origin ? beamerLabel(origin, beamerId) : beamerId;
+  };
 
   const announceIfActive = (dest: string) => {
     const top =
@@ -444,7 +454,7 @@ export default function setupIPCs(
   );
 
   const sendBeamerDownloadStatus = (status: BeamerDownloadStatus) => {
-    mainWindow.webContents.send('beamer-download-status', status);
+    mainWindow.webContents.send('beamerDownloadStatus', status);
   };
 
   const downloadQueue = createDownloadQueue({
@@ -492,11 +502,7 @@ export default function setupIPCs(
   const listedBeamers = () =>
     Array.from(beamers.values())
       .filter((beamer) => beamer.reported)
-      .sort((a, b) =>
-        (a.beamerName || a.beamerId || a.address).localeCompare(
-          b.beamerName || b.beamerId || b.address,
-        ),
-      )
+      .sort((a, b) => labelFor(a).localeCompare(labelFor(b)))
       .map((beamer) => ({ ...beamer, subscribed: isSubscribed(beamer) }));
 
   const sendBeamerFleet = () => {
@@ -630,7 +636,8 @@ export default function setupIPCs(
             name: event.replay.name,
             url: new URL(event.replay.url, origin).toString(),
             size: event.replay.size,
-            source: nameByBeamer.get(event.beamerId) ?? '',
+            beamerId: event.beamerId,
+            beamerName: beamerLabelFor(event.beamerId),
           });
         } catch {
           // unparseable replay url - it'll get fetched on select
@@ -721,7 +728,12 @@ export default function setupIPCs(
     ensureBeamerEvents();
 
     downloadQueue
-      .enqueueForegroundBatch(dest, files.slice(0, maxGamesFromIndex), label)
+      .enqueueForegroundBatch(
+        dest,
+        files.slice(0, maxGamesFromIndex),
+        indexBeamerId,
+        label,
+      )
       .then(() => {
         announceReplayDir();
         return undefined;
@@ -760,7 +772,8 @@ export default function setupIPCs(
     await downloadQueue.enqueueForegroundBatch(
       dir,
       files.slice(0, maxGamesFromIndex),
-      nameByBeamer.get(beamerId) ?? beamerId,
+      beamerId,
+      beamerLabelFor(beamerId),
     );
     announceIfActive(dir);
   });
@@ -803,7 +816,8 @@ export default function setupIPCs(
       await downloadQueue.enqueueForegroundBatch(
         dir,
         [next],
-        nameByBeamer.get(beamerId) ?? beamerId,
+        beamerId,
+        beamerLabelFor(beamerId),
       );
       announceIfActive(dir);
     },
@@ -977,13 +991,11 @@ export default function setupIPCs(
     results.forEach((result, i) => {
       if (result.status === 'rejected') {
         const beamer = targets[i];
-        const label =
-          beamer.beamerName || beamer.beamerId || beamer.address;
         const reason =
           result.reason instanceof Error
             ? result.reason.message
             : String(result.reason);
-        failures.push(`${label}: ${reason}`);
+        failures.push(`${labelFor(beamer)}: ${reason}`);
       }
     });
 
@@ -1031,13 +1043,11 @@ export default function setupIPCs(
     results.forEach((result, i) => {
       if (result.status === 'rejected') {
         const beamer = targets[i];
-        const label =
-          beamer.beamerName || beamer.beamerId || beamer.address;
         const reason =
           result.reason instanceof Error
             ? result.reason.message
             : String(result.reason);
-        failures.push(`${label}: ${reason}`);
+        failures.push(`${labelFor(beamer)}: ${reason}`);
       }
     });
 

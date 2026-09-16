@@ -48,8 +48,8 @@ const electronHandler = {
   onBeamerDownloadStatus: (
     callback: (event: IpcRendererEvent, status: BeamerDownloadStatus) => void,
   ) => {
-    ipcRenderer.removeAllListeners('beamer-download-status');
-    ipcRenderer.on('beamer-download-status', callback);
+    ipcRenderer.removeAllListeners('beamerDownloadStatus');
+    ipcRenderer.on('beamerDownloadStatus', callback);
   },
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
@@ -414,8 +414,8 @@ const electronHandler = {
       beamerId: string,
     ) => void,
   ) => {
-    ipcRenderer.removeAllListeners('replaydir');
-    ipcRenderer.on('replaydir', callback);
+    ipcRenderer.removeAllListeners('replayDir');
+    ipcRenderer.on('replayDir', callback);
   },
   onBeamerFleet: (
     callback: (event: IpcRendererEvent, fleet: BeamerFleet) => void,

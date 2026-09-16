@@ -31,11 +31,8 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { BeamerGame, BeamerPort, Beamer } from '../common/types';
 import { EMPTY_BEAMER_FLEET, characterNames } from '../common/constants';
+import { labelFor } from '../common/beamers';
 import getCharacterIcon from './getCharacterIcon';
-
-function labelFor(beamer: Beamer) {
-  return beamer.beamerName || beamer.beamerId || beamer.address;
-}
 
 function beamerKey(beamer: Beamer) {
   return beamer.beamerId || beamer.address;
