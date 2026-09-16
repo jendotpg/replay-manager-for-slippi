@@ -44,7 +44,7 @@ import {
   Replay,
   ReportSettings,
   SelectedSetChain,
-  Set,
+  Set as MatchSet,
   SlpDownloadStatus,
   BeamerDownloadStatus,
   StartggGame,
@@ -454,7 +454,9 @@ export default function setupIPCs(
   );
 
   const sendBeamerDownloadStatus = (status: BeamerDownloadStatus) => {
-    mainWindow.webContents.send('beamerDownloadStatus', status);
+    if (mainWindow) {
+      mainWindow.webContents.send('beamerDownloadStatus', status);
+    }
   };
 
   const downloadQueue = createDownloadQueue({
@@ -476,14 +478,13 @@ export default function setupIPCs(
   const isSubscribed = (beamer: Pick<Beamer, 'beamerId'>) =>
     subscribedBeamers.has(beamer.beamerId);
 
-  const autoUnsubscribed = new global.Set<string>();
+  const unsubscribed = new Set<string>();   // unsubscribes only have session lifetimes
   let autoSubscribeBeamers = store.get('autoSubscribeBeamers', true);
 
-  function subscribeBeamer(beamer: Beamer) {
+  function rememberBeamerSubscription(origin: string, beamer: Beamer) {
     if (!beamer.beamerId) {
       return;
     }
-    const origin = toBeamerOrigin(beamer.address);
     subscribedBeamers.set(beamer.beamerId, origin);
     rememberBeamer(
       beamer.beamerId,
@@ -497,7 +498,7 @@ export default function setupIPCs(
     beamer.reported &&
     Boolean(beamer.beamerId) &&
     !subscribedBeamers.has(beamer.beamerId) &&
-    !autoUnsubscribed.has(beamer.beamerId);
+    !unsubscribed.has(beamer.beamerId);
 
   const listedBeamers = () =>
     Array.from(beamers.values())
@@ -505,20 +506,20 @@ export default function setupIPCs(
       .sort((a, b) => labelFor(a).localeCompare(labelFor(b)))
       .map((beamer) => ({ ...beamer, subscribed: isSubscribed(beamer) }));
 
+  const buildBeamerFleet = (): BeamerFleet => ({
+    beamers: listedBeamers(),
+    browsing: beamerBrowse !== null,
+    error: beamerFleetError,
+  });
+
   const sendBeamerFleet = () => {
-    const fleet: BeamerFleet = {
-      beamers: listedBeamers(),
-      browsing: beamerBrowse !== null,
-      error: beamerFleetError,
-    };
-    mainWindow.webContents.send('beamerFleet', fleet);
+    mainWindow.webContents.send('beamerFleet', buildBeamerFleet());
   };
 
-  const pruneStaleReplaysFor = async (beamer: Beamer) => {
+  const pruneStaleReplaysFor = async (origin: string, beamer: Beamer) => {
     if (!beamer.beamerId) {
       return;
     }
-    const origin = toBeamerOrigin(beamer.address);
     const dest = beamerDirFor(beamerFullPath, origin, beamer.beamerId);
     const cached = await listCachedReplays(dest);
     if (cached.length === 0) {
@@ -574,11 +575,11 @@ export default function setupIPCs(
     }
 
     if (autoSubscribeCandidate(beamer)) {
-      subscribeBeamer(beamer);
+      rememberBeamerSubscription(origin, beamer);
     }
 
     try {
-      await pruneStaleReplaysFor(beamer);
+      await pruneStaleReplaysFor(origin, beamer);
     } catch {
       // if there's no index, we don't know whats stale - just noop.
     }
@@ -601,7 +602,7 @@ export default function setupIPCs(
   };
 
   let beamerEvents: BeamerEventsHandle | null = null;
-  const statusRefreshInFlight = new global.Set<string>();
+  const statusRefreshInFlight = new Set<string>();
 
   const beamerSelected = () =>
     replayDirs.some((replayDir) => replayDir.dirType === 'beamer');
@@ -901,18 +902,14 @@ export default function setupIPCs(
 
   ipcMain.removeHandler('getBeamerFleet');
   ipcMain.handle('getBeamerFleet', (): BeamerFleet => {
-    return {
-      beamers: listedBeamers(),
-      browsing: beamerBrowse !== null,
-      error: beamerFleetError,
-    };
+    return buildBeamerFleet();
   });
 
   function setBeamerSubscription(beamerId: string, subscribed: boolean) {
     if (subscribed) {
       const beamer = beamers.get(beamerId);
       if (beamer) {
-        subscribeBeamer(beamer);
+        rememberBeamerSubscription(toBeamerOrigin(beamer.address), beamer);
       } else {
         const remembered = originByBeamer.get(beamerId);
         if (remembered) {
@@ -920,7 +917,7 @@ export default function setupIPCs(
         }
       }
     } else {
-      autoUnsubscribed.add(beamerId);
+      unsubscribed.add(beamerId);
       subscribedBeamers.delete(beamerId);
       maybeStopBeamerEvents();
     }
@@ -947,7 +944,9 @@ export default function setupIPCs(
     store.set('autoSubscribeBeamers', on);
     if (on) {
       const swept = listedBeamers().filter(autoSubscribeCandidate);
-      swept.forEach((beamer) => subscribeBeamer(beamer));
+      swept.forEach((beamer) =>
+        rememberBeamerSubscription(toBeamerOrigin(beamer.address), beamer),
+      );
       if (swept.length > 0) {
         ensureBeamerEvents();
         sendBeamerFleet();
@@ -968,18 +967,15 @@ export default function setupIPCs(
     sendBeamerFleet();
   });
 
-  ipcMain.removeHandler('refreshAllBeamers');
-  ipcMain.handle('refreshAllBeamers', async (): Promise<string[]> => {
+  const runOverFleet = async (
+    action: (beamer: Beamer) => Promise<void>,
+  ): Promise<string[]> => {
     const targets = listedBeamers();
     if (targets.length === 0) {
       throw new Error('No beamers are advertising themselves.');
     }
 
-    const results = await Promise.allSettled(
-      targets.map((beamer) =>
-        refreshBeamer({ address: beamer.address, host: beamer.host }),
-      ),
-    );
+    const results = await Promise.allSettled(targets.map(action));
 
     const failures: string[] = [];
     results.forEach((result, i) => {
@@ -995,7 +991,14 @@ export default function setupIPCs(
 
     sendBeamerFleet();
     return failures;
-  });
+  };
+
+  ipcMain.removeHandler('refreshAllBeamers');
+  ipcMain.handle('refreshAllBeamers', () =>
+    runOverFleet((beamer) =>
+      refreshBeamer({ address: beamer.address, host: beamer.host }),
+    ),
+  );
 
   ipcMain.removeHandler('resetBeamer');
   ipcMain.handle('resetBeamer', async (event, beamerId: string) => {
@@ -1015,39 +1018,17 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('resetAllBeamers');
-  ipcMain.handle('resetAllBeamers', async (): Promise<string[]> => {
-    const targets = listedBeamers();
-    if (targets.length === 0) {
-      throw new Error('No beamers are advertising themselves.');
-    }
-
-    const results = await Promise.allSettled(
-      targets.map(async (beamer) => {
-        const base = { address: beamer.address, host: beamer.host };
-        await resetBeamer(toBeamerOrigin(base.address));
-        try {
-          await refreshBeamer(base);
-        } catch {
-          // The next poll will catch up.
-        }
-      }),
-    );
-
-    const failures: string[] = [];
-    results.forEach((result, i) => {
-      if (result.status === 'rejected') {
-        const beamer = targets[i];
-        const reason =
-          result.reason instanceof Error
-            ? result.reason.message
-            : String(result.reason);
-        failures.push(`${labelFor(beamer)}: ${reason}`);
+  ipcMain.handle('resetAllBeamers', () =>
+    runOverFleet(async (beamer) => {
+      const base = { address: beamer.address, host: beamer.host };
+      await resetBeamer(toBeamerOrigin(base.address));
+      try {
+        await refreshBeamer(base);
+      } catch {
+        // The next poll will catch up.
       }
-    });
-
-    sendBeamerFleet();
-    return failures;
-  });
+    }),
+  );
 
   const maybeEject = (currentDir: ReplayDir) => {
     if (currentDir.usbKey) {
@@ -1101,7 +1082,9 @@ export default function setupIPCs(
       !undoSrcFullPath &&
       replayDirs[replayDirs.length - 1].dirType === 'beamer'
     ) {
-      return Promise.resolve(false);
+      throw new Error(
+        'Beamer replays live in the cache — erase on the beamer or clear the cache in Settings.',
+      );
     }
 
     const slpFilenames = (await readdir(currentDir, { withFileTypes: true }))
@@ -1143,7 +1126,9 @@ export default function setupIPCs(
     async (event, replayPaths: string[], used: boolean) => {
       const beamerRoot = `${beamerFullPath}${path.sep}`;
       if (replayPaths.some((replayPath) => replayPath.startsWith(beamerRoot))) {
-        return;
+        throw new Error(
+          'Beamer replays live in the cache — erase on the beamer or clear the cache in Settings.',
+        );
       }
       if (trashDir) {
         const trashSubdir = format(new Date(), 'yyyy-MM-dd HHmmss');
@@ -1174,6 +1159,10 @@ export default function setupIPCs(
   setOwnEnforcerSetting(enforcerSetting);
   ipcMain.removeHandler('getCurrentReplays');
   ipcMain.handle('getCurrentReplays', async () => {
+    // Fork change vs upstream's getReplaysInDir, which throws here: no
+    // selection is a valid quiet state now, not an error — startup and the
+    // beamer flow rely on the clean empty result instead of the UI's
+    // missing-folder error state.
     if (replayDirs.length === 0 && !undoSrcFullPath) {
       replayLoadCount += 1;
       return {
@@ -1530,7 +1519,7 @@ export default function setupIPCs(
     });
   });
 
-  const getRealSetId = async (key: string, originalSet: Set) => {
+  const getRealSetId = async (key: string, originalSet: MatchSet) => {
     const updatedPhaseGroup = await getPhaseGroup(
       key,
       assertInteger(selectedPhaseGroupId),
@@ -1550,7 +1539,7 @@ export default function setupIPCs(
   ipcMain.removeHandler('assignStream');
   ipcMain.handle(
     'assignStream',
-    async (event, originalSet: Set, streamId: number) => {
+    async (event, originalSet: MatchSet, streamId: number) => {
       if (!sggApiKey) {
         throw new Error('Please set start.gg API key');
       }
@@ -1583,7 +1572,7 @@ export default function setupIPCs(
   ipcMain.removeHandler('assignStation');
   ipcMain.handle(
     'assignStation',
-    async (event, originalSet: Set, stationId: number) => {
+    async (event, originalSet: MatchSet, stationId: number) => {
       if (!sggApiKey) {
         throw new Error('Please set start.gg API key');
       }
@@ -1628,7 +1617,7 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('callSet');
-  ipcMain.handle('callSet', async (event, originalSet: Set) => {
+  ipcMain.handle('callSet', async (event, originalSet: MatchSet) => {
     if (!sggApiKey) {
       throw new Error('Please set start.gg API key');
     }
@@ -1658,7 +1647,7 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('startSet');
-  ipcMain.handle('startSet', async (event, originalSet: Set) => {
+  ipcMain.handle('startSet', async (event, originalSet: MatchSet) => {
     if (!sggApiKey) {
       throw new Error('Please set start.gg API key');
     }
@@ -1693,13 +1682,13 @@ export default function setupIPCs(
     async (
       event,
       set: StartggSet,
-      originalSet: Set,
-    ): Promise<Set | undefined> => {
+      originalSet: MatchSet,
+    ): Promise<MatchSet | undefined> => {
       if (!sggApiKey) {
         throw new Error('Please set start.gg API key');
       }
 
-      let updatedSet: Set | undefined;
+      let updatedSet: MatchSet | undefined;
       try {
         updatedSet = await reportSet(
           sggApiKey,
@@ -1765,7 +1754,7 @@ export default function setupIPCs(
   ipcMain.removeHandler('updateSet');
   ipcMain.handle(
     'updateSet',
-    async (event, set: StartggSet): Promise<Set | undefined> => {
+    async (event, set: StartggSet): Promise<MatchSet | undefined> => {
       if (!sggApiKey) {
         throw new Error('Please set start.gg API key');
       }
