@@ -110,23 +110,23 @@ export async function getBeamerIndex(origin: string) {
     });
   });
   return {
-    stationId: typeof index.station_id === 'string' ? index.station_id : '',
+    beamerId: typeof index.station_id === 'string' ? index.station_id : '',
     files,
   };
 }
 
-export function beamerName(origin: string, stationId: string) {
-  return stationId && stationId !== 'unknown'
-    ? stationId
+export function beamerLabel(origin: string, beamerId: string) {
+  return beamerId && beamerId !== 'unknown'
+    ? beamerId
     : origin.replace(/^http:\/\//, '');
 }
 
 export function beamerDirFor(
   cacheRoot: string,
   origin: string,
-  stationId: string,
+  beamerId: string,
 ) {
-  const name = beamerName(origin, stationId).replace(/:/g, '_');
+  const name = beamerLabel(origin, beamerId).replace(/:/g, '_');
   return path.join(cacheRoot, sanitize(name) || 'beamer');
 }
 

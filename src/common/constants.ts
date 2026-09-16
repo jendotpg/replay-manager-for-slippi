@@ -306,7 +306,7 @@ export const calledColor = '#f9a825';
 export const startedColor = '#0d8225';
 
 export const EMPTY_BEAMER_FLEET: BeamerFleet = {
-  stations: [],
+  beamers: [],
   browsing: false,
   error: '',
 };

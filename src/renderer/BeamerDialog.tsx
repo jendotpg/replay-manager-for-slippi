@@ -29,20 +29,20 @@ import {
   Warning,
 } from '@mui/icons-material';
 import { useEffect, useRef, useState } from 'react';
-import { BeamerGame, BeamerPort, BeamerStation } from '../common/types';
+import { BeamerGame, BeamerPort, Beamer } from '../common/types';
 import { EMPTY_BEAMER_FLEET, characterNames } from '../common/constants';
 import getCharacterIcon from './getCharacterIcon';
 
-function labelFor(station: BeamerStation) {
-  return station.stationName || station.stationId || station.address;
+function labelFor(beamer: Beamer) {
+  return beamer.beamerName || beamer.beamerId || beamer.address;
 }
 
-function stationKey(station: BeamerStation) {
-  return station.stationId || station.address;
+function beamerKey(beamer: Beamer) {
+  return beamer.beamerId || beamer.address;
 }
 
-function warningsFor(station: BeamerStation) {
-  return station.warnings.join(', ');
+function warningsFor(beamer: Beamer) {
+  return beamer.warnings.join(', ');
 }
 
 function formatSecs(secs: number | null) {
@@ -59,31 +59,31 @@ function formatSecs(secs: number | null) {
   return `${Math.floor(mins / 60)}h ${`${mins % 60}`.padStart(2, '0')}m`;
 }
 
-function formatReplays(station: BeamerStation) {
-  if (station.replayCount < 0) {
+function formatReplays(beamer: Beamer) {
+  if (beamer.replayCount < 0) {
     return '\u2014';
   }
-  return station.replayCap >= 0
-    ? `${station.replayCount} / ${station.replayCap}`
-    : `${station.replayCount}`;
+  return beamer.replayCap >= 0
+    ? `${beamer.replayCount} / ${beamer.replayCap}`
+    : `${beamer.replayCount}`;
 }
 
-function StationsTooltip({
+function BeamersTooltip({
   showWarnings,
-  stations,
+  beamers,
 }: {
   showWarnings: boolean;
-  stations: BeamerStation[];
+  beamers: Beamer[];
 }) {
   return (
     <Stack gap="2px">
-      {stations.map((station) => {
-        const warnings = showWarnings ? warningsFor(station) : '';
+      {beamers.map((beamer) => {
+        const warnings = showWarnings ? warningsFor(beamer) : '';
         return (
-          <Typography key={stationKey(station)} variant="caption">
+          <Typography key={beamerKey(beamer)} variant="caption">
             {warnings
-              ? `${labelFor(station)} — ${warnings}`
-              : labelFor(station)}
+              ? `${labelFor(beamer)} — ${warnings}`
+              : labelFor(beamer)}
           </Typography>
         );
       })}
@@ -95,7 +95,7 @@ const MAX_GAMES_FROM_INDEX = 16; // NUM-REPLAYS-SERVED ceiling
 
 const DOWN_WARNINGS = ['DRIVE FULL', 'NO WII']; // udate if more "can't write" warnings are added...
 
-const HEALTH_COLOR: Record<BeamerStation['health'], string> = {
+const HEALTH_COLOR: Record<Beamer['health'], string> = {
   ok: '#31d158',
   starting: '#8a8a8e',
   warn: '#f5a623',
@@ -103,12 +103,12 @@ const HEALTH_COLOR: Record<BeamerStation['health'], string> = {
   unknown: '#8a8a8e',
 };
 
-function LiveLight({ station }: { station: BeamerStation }) {
+function LiveLight({ beamer }: { beamer: Beamer }) {
   const down =
-    station.health === 'error' ||
-    station.warnings.some((warning) => DOWN_WARNINGS.includes(warning));
-  const color = down ? HEALTH_COLOR.error : HEALTH_COLOR[station.health];
-  const live = Boolean(station.game?.live);
+    beamer.health === 'error' ||
+    beamer.warnings.some((warning) => DOWN_WARNINGS.includes(warning));
+  const color = down ? HEALTH_COLOR.error : HEALTH_COLOR[beamer.health];
+  const live = Boolean(beamer.game?.live);
   const dot = (
     <span
       style={{
@@ -122,7 +122,7 @@ function LiveLight({ station }: { station: BeamerStation }) {
     />
   );
   const title =
-    warningsFor(station) || (station.health === 'error' ? 'ERROR' : '');
+    warningsFor(beamer) || (beamer.health === 'error' ? 'ERROR' : '');
   return title ? (
     <Tooltip arrow title={title}>
       {dot}
@@ -179,7 +179,7 @@ export default function BeamerDialog({
   const [refreshing, setRefreshing] = useState('');
   const [subscribing, setSubscribing] = useState('');
   const [confirmingReset, setConfirmingReset] = useState<
-    BeamerStation | 'all' | null
+    Beamer | 'all' | null
   >(null);
   const [resetting, setResetting] = useState('');
   const [error, setError] = useState('');
@@ -222,11 +222,11 @@ export default function BeamerDialog({
     return () => clearInterval(interval);
   }, [open]);
 
-  const select = async (stationId: string) => {
-    setCopying(stationId);
+  const select = async (beamerId: string) => {
+    setCopying(beamerId);
     setError('');
     try {
-      await window.electron.selectBeamer(stationId);
+      await window.electron.selectBeamer(beamerId);
       onClose();
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
@@ -235,11 +235,11 @@ export default function BeamerDialog({
     }
   };
 
-  const refresh = async (stationId: string) => {
-    setRefreshing(stationId);
+  const refresh = async (beamerId: string) => {
+    setRefreshing(beamerId);
     setError('');
     try {
-      await window.electron.refreshBeamerStatus(stationId);
+      await window.electron.refreshBeamerStatus(beamerId);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
@@ -247,13 +247,13 @@ export default function BeamerDialog({
     }
   };
 
-  const toggleSubscribe = async (station: BeamerStation) => {
-    setSubscribing(stationKey(station));
+  const toggleSubscribe = async (beamer: Beamer) => {
+    setSubscribing(beamerKey(beamer));
     setError('');
     try {
       await window.electron.setBeamerSubscribed(
-        stationKey(station),
-        !station.subscribed,
+        beamerKey(beamer),
+        !beamer.subscribed,
       );
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
@@ -266,7 +266,7 @@ export default function BeamerDialog({
     setRefreshing('all');
     setError('');
     try {
-      const failures = await window.electron.refreshAllBeamerStations();
+      const failures = await window.electron.refreshAllBeamers();
       if (failures.length > 0) {
         setError(`Refreshed the rest, but not these:\n${failures.join('\n')}`);
       }
@@ -277,11 +277,11 @@ export default function BeamerDialog({
     }
   };
 
-  const reset = async (station: BeamerStation) => {
-    setResetting(stationKey(station));
+  const reset = async (beamer: Beamer) => {
+    setResetting(beamerKey(beamer));
     setError('');
     try {
-      await window.electron.resetBeamerStation(stationKey(station));
+      await window.electron.resetBeamer(beamerKey(beamer));
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
@@ -294,7 +294,7 @@ export default function BeamerDialog({
     setResetting('all');
     setError('');
     try {
-      const failures = await window.electron.resetAllBeamerStations();
+      const failures = await window.electron.resetAllBeamers();
       if (failures.length > 0) {
         setError(`Erased the rest, but not these:\n${failures.join('\n')}`);
       }
@@ -307,19 +307,19 @@ export default function BeamerDialog({
   };
 
   const busy = Boolean(copying);
-  const erroring = fleet.stations.filter(
-    (station) => station.health === 'error',
+  const erroring = fleet.beamers.filter(
+    (beamer) => beamer.health === 'error',
   );
-  const warning = fleet.stations.filter((station) => station.health === 'warn');
+  const warning = fleet.beamers.filter((beamer) => beamer.health === 'warn');
 
   let confirmingResetCount =
-    "Every replay on this station's drive will be erased. This cannot be undone.";
+    "Every replay on this beamer's drive will be erased. This cannot be undone.";
   if (
     confirmingReset &&
     confirmingReset !== 'all' &&
     confirmingReset.replayCount >= 0
   ) {
-    confirmingResetCount = `All ${confirmingReset.replayCount} replays on this station's drive will be erased. This cannot be undone.`;
+    confirmingResetCount = `All ${confirmingReset.replayCount} replays on this beamer's drive will be erased. This cannot be undone.`;
   }
 
   return (
@@ -372,7 +372,7 @@ export default function BeamerDialog({
               <Tooltip
                 arrow
                 title={
-                  <StationsTooltip showWarnings={false} stations={erroring} />
+                  <BeamersTooltip showWarnings={false} beamers={erroring} />
                 }
               >
                 <Chip
@@ -388,7 +388,7 @@ export default function BeamerDialog({
             {warning.length > 0 && (
               <Tooltip
                 arrow
-                title={<StationsTooltip showWarnings stations={warning} />}
+                title={<BeamersTooltip showWarnings beamers={warning} />}
               >
                 <Chip
                   color="warning"
@@ -401,11 +401,11 @@ export default function BeamerDialog({
               </Tooltip>
             )}
           </Stack>
-          {fleet.stations.length > 0 && (
+          {fleet.beamers.length > 0 && (
             <Stack alignItems="center" direction="row" gap="4px">
               <Tooltip
                 arrow
-                title="Re-run the status check on every station listed here"
+                title="Re-run the status check on every beamer listed here"
               >
                 <span>
                   <IconButton
@@ -423,7 +423,7 @@ export default function BeamerDialog({
               </Tooltip>
               <Tooltip
                 arrow
-                title="Erase the replays on every station listed here"
+                title="Erase the replays on every beamer listed here"
               >
                 <span>
                   <Button
@@ -442,12 +442,12 @@ export default function BeamerDialog({
         </Stack>
       </DialogTitle>
       <DialogContent>
-        {fleet.stations.length > 0 ? (
+        {fleet.beamers.length > 0 ? (
           <Table size="small">
             <TableHead>
               <TableRow>
                 <TableCell />
-                <TableCell>Station</TableCell>
+                <TableCell>Beamer</TableCell>
                 <TableCell>Live</TableCell>
                 <TableCell>Replays</TableCell>
                 <TableCell>P1</TableCell>
@@ -463,31 +463,31 @@ export default function BeamerDialog({
               </TableRow>
             </TableHead>
             <TableBody>
-              {fleet.stations.map((station) => {
-                const ports = [...(station.game?.ports ?? [])].sort(
+              {fleet.beamers.map((beamer) => {
+                const ports = [...(beamer.game?.ports ?? [])].sort(
                   (a, b) => a.port - b.port,
                 );
                 let subscribeIcon = (
                   <NotificationsNone color="action" fontSize="small" />
                 );
-                if (subscribing === stationKey(station)) {
+                if (subscribing === beamerKey(beamer)) {
                   subscribeIcon = <CircularProgress size="20px" />;
-                } else if (station.subscribed) {
+                } else if (beamer.subscribed) {
                   subscribeIcon = (
                     <NotificationsActive color="action" fontSize="small" />
                   );
                 }
-                const stationDetail = station.stationId || station.host;
-                const stationTitle = stationDetail
-                  ? `${labelFor(station)} · ${stationDetail}`
-                  : labelFor(station);
+                const beamerDetail = beamer.beamerId || beamer.host;
+                const beamerTitle = beamerDetail
+                  ? `${labelFor(beamer)} · ${beamerDetail}`
+                  : labelFor(beamer);
                 return (
                   <TableRow
                     hover
-                    key={stationKey(station)}
+                    key={beamerKey(beamer)}
                     onClick={() => {
                       if (!busy) {
-                        select(stationKey(station));
+                        select(beamerKey(beamer));
                       }
                     }}
                     style={{ cursor: busy ? 'default' : 'pointer' }}
@@ -495,10 +495,10 @@ export default function BeamerDialog({
                     <TableCell padding="checkbox">
                       <span>
                         <IconButton
-                          disabled={busy || subscribing === stationKey(station)}
+                          disabled={busy || subscribing === beamerKey(beamer)}
                           onClick={(event) => {
                             event.stopPropagation();
-                            toggleSubscribe(station);
+                            toggleSubscribe(beamer);
                           }}
                           size="small"
                         >
@@ -508,22 +508,22 @@ export default function BeamerDialog({
                     </TableCell>
                     <TableCell>
                       <Stack alignItems="center" direction="row" gap="8px">
-                        <Tooltip arrow title={stationTitle}>
+                        <Tooltip arrow title={beamerTitle}>
                           <Typography
                             noWrap
                             variant="body2"
                             sx={{ maxWidth: 220 }}
                           >
-                            {labelFor(station)}
+                            {labelFor(beamer)}
                           </Typography>
                         </Tooltip>
-                        {copying === stationKey(station) && (
+                        {copying === beamerKey(beamer) && (
                           <CircularProgress size="16px" />
                         )}
                       </Stack>
                     </TableCell>
                     <TableCell>
-                      <LiveLight station={station} />
+                      <LiveLight beamer={beamer} />
                     </TableCell>
                     <TableCell>
                       <Typography
@@ -531,11 +531,11 @@ export default function BeamerDialog({
                         style={{ whiteSpace: 'nowrap' }}
                         variant="body2"
                       >
-                        {formatReplays(station)}
+                        {formatReplays(beamer)}
                       </Typography>
                     </TableCell>
-                    <PortCell game={station.game} port={ports[0]} />
-                    <PortCell game={station.game} port={ports[1]} />
+                    <PortCell game={beamer.game} port={ports[0]} />
+                    <PortCell game={beamer.game} port={ports[1]} />
                     <TableCell>
                       <Typography
                         color="text.secondary"
@@ -544,8 +544,8 @@ export default function BeamerDialog({
                       >
                         {formatSecs(
                           liveSecs(
-                            stationKey(station),
-                            station.secsSincePortChange,
+                            beamerKey(beamer),
+                            beamer.secsSincePortChange,
                           ),
                         )}
                       </Typography>
@@ -558,14 +558,14 @@ export default function BeamerDialog({
                       >
                         {formatSecs(
                           liveSecs(
-                            stationKey(station),
-                            station.secsSinceGameStart,
+                            beamerKey(beamer),
+                            beamer.secsSinceGameStart,
                           ),
                         )}
                       </Typography>
                     </TableCell>
                     <TableCell padding="none">
-                      <Tooltip arrow title="Re-run this station's status check">
+                      <Tooltip arrow title="Re-run this beamer's status check">
                         <span>
                           <IconButton
                             disabled={
@@ -573,10 +573,10 @@ export default function BeamerDialog({
                             }
                             onClick={(event) => {
                               event.stopPropagation();
-                              refresh(stationKey(station));
+                              refresh(beamerKey(beamer));
                             }}
                           >
-                            {refreshing === stationKey(station) ? (
+                            {refreshing === beamerKey(beamer) ? (
                               <CircularProgress size="24px" />
                             ) : (
                               <Refresh />
@@ -586,16 +586,16 @@ export default function BeamerDialog({
                       </Tooltip>
                     </TableCell>
                     <TableCell padding="none">
-                      <Tooltip arrow title="Erase this station's replays">
+                      <Tooltip arrow title="Erase this beamer's replays">
                         <span>
                           <IconButton
                             disabled={busy || Boolean(resetting)}
                             onClick={(event) => {
                               event.stopPropagation();
-                              setConfirmingReset(station);
+                              setConfirmingReset(beamer);
                             }}
                           >
-                            {resetting === stationKey(station) ? (
+                            {resetting === beamerKey(beamer) ? (
                               <CircularProgress size="24px" />
                             ) : (
                               <DeleteForever color="error" />
@@ -612,7 +612,7 @@ export default function BeamerDialog({
         ) : (
           <Alert severity="info" style={{ marginTop: '8px' }}>
             {fleet.browsing
-              ? 'Listening for Beamers. A station appears here within a second or two of joining the network.'
+              ? 'Listening for Beamers. A beamer appears here within a second or two of joining the network.'
               : 'Not listening yet.'}
           </Alert>
         )}
@@ -640,25 +640,25 @@ export default function BeamerDialog({
       >
         <DialogTitle>
           {confirmingReset === 'all'
-            ? `Erase all ${fleet.stations.length} stations?`
+            ? `Erase all ${fleet.beamers.length} beamers?`
             : `Erase ${
-                confirmingReset ? labelFor(confirmingReset) : 'station'
+                confirmingReset ? labelFor(confirmingReset) : 'beamer'
               }?`}
         </DialogTitle>
         <DialogContent>
           <Alert severity="warning">
             {confirmingReset === 'all'
-              ? `Every replay on all ${fleet.stations.length} of these drives will be erased. This cannot be undone.`
+              ? `Every replay on all ${fleet.beamers.length} of these drives will be erased. This cannot be undone.`
               : confirmingResetCount}
           </Alert>
           {confirmingReset === 'all' && (
             <DialogContentText marginTop="8px" variant="body2">
-              {fleet.stations.map((station) => labelFor(station)).join(', ')}
+              {fleet.beamers.map((beamer) => labelFor(beamer)).join(', ')}
             </DialogContentText>
           )}
           <DialogContentText marginTop="8px" variant="body2">
             Anything already copied to this computer is kept. If a game is being
-            played right now, let it finish first — the station has nowhere to
+            played right now, let it finish first — the beamer has nowhere to
             put a replay it is midway through writing.
           </DialogContentText>
         </DialogContent>

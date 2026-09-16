@@ -616,11 +616,11 @@ export type BeamerGame = {
 
 export type BeamerHealth = 'ok' | 'starting' | 'warn' | 'error' | 'unknown';
 
-export type BeamerStation = {
+export type Beamer = {
   address: string;
   host: string;
-  stationId: string;
-  stationName: string;
+  beamerId: string;
+  beamerName: string;
   ssid: string;
   arch: string;
   ssh: boolean;
@@ -637,7 +637,7 @@ export type BeamerStation = {
 };
 
 export type BeamerFleet = {
-  stations: BeamerStation[];
+  beamers: Beamer[];
   browsing: boolean;
   error: string;
 };
@@ -646,8 +646,8 @@ export type BeamerEventKind = 'game_started' | 'game_finished';
 
 export type BeamerEvent = {
   event: BeamerEventKind;
-  stationId: string;
-  stationName: string;
+  beamerId: string;
+  beamerName: string;
   seq: number;
   replay: { name: string; size: number; url: string };
   game: BeamerGame | null;

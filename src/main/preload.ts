@@ -54,13 +54,13 @@ const electronHandler = {
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
     ipcRenderer.invoke('chooseReplaysDir'),
-  selectBeamer: (stationId: string): Promise<string> =>
-    ipcRenderer.invoke('selectBeamer', stationId),
+  selectBeamer: (beamerId: string): Promise<string> =>
+    ipcRenderer.invoke('selectBeamer', beamerId),
   setBeamerSubscribed: (
-    stationId: string,
+    beamerId: string,
     subscribed: boolean,
   ): Promise<void> =>
-    ipcRenderer.invoke('setBeamerSubscribed', stationId, subscribed),
+    ipcRenderer.invoke('setBeamerSubscribed', beamerId, subscribed),
   getBeamersAutoSubscribe: (): Promise<boolean> =>
     ipcRenderer.invoke('getBeamersAutoSubscribe'),
   setBeamersAutoSubscribe: (on: boolean): Promise<void> =>
@@ -88,14 +88,14 @@ const electronHandler = {
   stopBeamerBrowse: (): Promise<void> => ipcRenderer.invoke('stopBeamerBrowse'),
   getBeamerFleet: (): Promise<BeamerFleet> =>
     ipcRenderer.invoke('getBeamerFleet'),
-  refreshBeamerStatus: (stationId: string): Promise<void> =>
-    ipcRenderer.invoke('refreshBeamerStatus', stationId),
-  resetBeamerStation: (stationId: string): Promise<void> =>
-    ipcRenderer.invoke('resetBeamerStation', stationId),
-  refreshAllBeamerStations: (): Promise<string[]> =>
-    ipcRenderer.invoke('refreshAllBeamerStations'),
-  resetAllBeamerStations: (): Promise<string[]> =>
-    ipcRenderer.invoke('resetAllBeamerStations'),
+  refreshBeamerStatus: (beamerId: string): Promise<void> =>
+    ipcRenderer.invoke('refreshBeamerStatus', beamerId),
+  resetBeamer: (beamerId: string): Promise<void> =>
+    ipcRenderer.invoke('resetBeamer', beamerId),
+  refreshAllBeamers: (): Promise<string[]> =>
+    ipcRenderer.invoke('refreshAllBeamers'),
+  resetAllBeamers: (): Promise<string[]> =>
+    ipcRenderer.invoke('resetAllBeamers'),
   deleteReplaysDir: (usedFilenames: string[]): Promise<boolean> =>
     ipcRenderer.invoke('deleteReplaysDir', usedFilenames),
   deleteSelectedReplays: (

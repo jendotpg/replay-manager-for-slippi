@@ -7,7 +7,7 @@ import {
   BeamerGame,
   BeamerHealth,
   BeamerPort,
-  BeamerStation,
+  Beamer,
 } from '../common/types';
 
 export const FLEET_POLL_MS = 10000;
@@ -74,14 +74,14 @@ function asWarnings(value: unknown) {
     : [];
 }
 
-export function stationFromStatus(
-  base: Pick<BeamerStation, 'address' | 'host'>,
+export function beamerFromStatus(
+  base: Pick<Beamer, 'address' | 'host'>,
   status: any,
-): BeamerStation {
+): Beamer {
   return {
     ...base,
-    stationId: asString(status.station_id),
-    stationName: asString(status.station_name),
+    beamerId: asString(status.station_id),
+    beamerName: asString(status.station_name),
     ssid: asString(status.ssid),
     arch: asString(status.arch),
     ssh: status.ssh === true,
@@ -98,13 +98,13 @@ export function stationFromStatus(
   };
 }
 
-export function unreportedStation(
-  base: Pick<BeamerStation, 'address' | 'host'>,
-): BeamerStation {
+export function unreportedBeamer(
+  base: Pick<Beamer, 'address' | 'host'>,
+): Beamer {
   return {
     ...base,
-    stationId: '',
-    stationName: '',
+    beamerId: '',
+    beamerName: '',
     ssid: '',
     arch: '',
     ssh: false,
@@ -133,7 +133,7 @@ export function isStatusBody(body: any) {
 async function readStatus(response: Response) {
   const declaredLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(declaredLength) && declaredLength > MAX_STATUS_BYTES) {
-    throw new Error('That station sent back far more than a status report.');
+    throw new Error('That beamer sent back far more than a status report.');
   }
   try {
     return await response.json();
@@ -195,7 +195,7 @@ export async function resetBeamer(origin: string) {
       (e.name === 'TimeoutError' || e.name === 'AbortError')
     ) {
       throw new Error(
-        `${origin} did not answer the reset. Check the station before assuming its replays survived.`,
+        `${origin} did not answer the reset. Check the beamer before assuming its replays survived.`,
       );
     }
     throw new Error(`Could not reach a Beamer at ${origin}.`);
@@ -211,8 +211,8 @@ export async function resetBeamer(origin: string) {
     }
     throw new Error(
       reported
-        ? `That station refused: ${reported}. Nothing was erased - try again in a moment.`
-        : 'That station is busy sending a replay, or with another action. Nothing was erased - try again in a moment.',
+        ? `That beamer refused: ${reported}. Nothing was erased - try again in a moment.`
+        : 'That beamer is busy sending a replay, or with another action. Nothing was erased - try again in a moment.',
     );
   }
   if (response.status === 400) {
@@ -258,7 +258,7 @@ export type BeamerBrowseHandle = {
 };
 
 export function browseForBeamers(callbacks: {
-  onFound: (base: Pick<BeamerStation, 'address' | 'host'>) => void;
+  onFound: (base: Pick<Beamer, 'address' | 'host'>) => void;
   onLost: (host: string) => void;
   onError: (error: Error) => void;
 }): BeamerBrowseHandle {
@@ -328,8 +328,8 @@ export function parseBeamerEvent(
   }
   return {
     event: body.event as BeamerEventKind,
-    stationId: body.station_id,
-    stationName: asString(body.station_name),
+    beamerId: body.station_id,
+    beamerName: asString(body.station_name),
     seq: body.seq,
     replay: {
       name: replay.name,
