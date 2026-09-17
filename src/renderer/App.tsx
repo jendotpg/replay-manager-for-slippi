@@ -1060,13 +1060,7 @@ function Hello() {
           setDirType(newDirType);
           setSelectedBeamer(newDirType === 'beamer' ? newBeamerId : '');
           setWasDeleted(false);
-          if (newDisplay) {
-            refreshReplays(true);
-          } else {
-            setDirExists(false);
-            setGuideBackdropOpen(false);
-            setGuideState(GuideState.NONE);
-          }
+          refreshReplays(true);
           setEjected(false);
         }
       },
