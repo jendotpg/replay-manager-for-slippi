@@ -26,7 +26,7 @@ import { downloadFile, sizeOf, toDownloadError } from './download';
 const INDEX_ATTEMPTS = 3;
 const INDEX_RETRY_MS = 1000;
 
-const FLEET_POLL_MS = 10000;
+const PING_FAILS_BEFORE_OFFLINE = 3;
 
 const EVENT_GROUP = '239.255.42.1';
 const EVENT_PORT = 34700;
@@ -118,6 +118,7 @@ function beamerFromStatus(
     secsSinceCharacterChange: asSecs(status.secs_since_character_change),
     secsSinceGameStart: asSecs(status.secs_since_game_start),
     reported: true,
+    pingFails: 0,
     game: asGame(status.game),
     subscribed: false,
     label: '',
@@ -135,6 +136,7 @@ function unreportedBeamer(base: Pick<Beamer, 'address' | 'host'>): Beamer {
     health: 'unknown',
     warnings: [],
     reported: false,
+    pingFails: 0,
     game: null,
     subscribed: false,
     label: '',
@@ -1189,7 +1191,6 @@ const beamerLabelFor = (beamerId: string) => {
 const beamers = new Map<string, Beamer>();
 let beamerBrowse: BeamerBrowseHandle | null = null;
 let beamerBrowseOpen = false; // the fleet dialog is holding the browser open
-let beamerPollTimer: NodeJS.Timeout | null = null;
 let beamerFleetError = '';
 
 const subscribedBeamers = new Map<string, string>();
@@ -1220,7 +1221,10 @@ const autoSubscribeCandidate = (beamer: Beamer) =>
 
 const listedBeamers = () =>
   Array.from(beamers.values())
-    .filter((beamer) => beamer.reported)
+    .filter(
+      (beamer) =>
+        beamer.reported && beamer.pingFails < PING_FAILS_BEFORE_OFFLINE,
+    )
     .sort((a, b) => labelFor(a).localeCompare(labelFor(b)))
     .map((beamer) => ({
       ...beamer,
@@ -1279,9 +1283,31 @@ const pruneStaleReplaysFor = async (
 };
 
 type BeamerBase = Pick<Beamer, 'address' | 'host'>;
+
+// one missed ping: bump the strike count, keep the last-known record
+const markPingMiss = (base: BeamerBase) => {
+  const existing =
+    Array.from(beamers.values()).find(
+      (beamer) => beamer.address === base.address,
+    ) ?? beamers.get(base.address);
+  if (!existing) {
+    return;
+  }
+  beamers.set(existing.beamerId || existing.address, {
+    ...existing,
+    pingFails: existing.pingFails + 1,
+  });
+};
+
 const refreshBeamer = async (base: BeamerBase) => {
   const origin = toBeamerOrigin(base.address);
-  const result = await getBeamerStatus(origin);
+  let result: StatusResult;
+  try {
+    result = await getBeamerStatus(origin);
+  } catch {
+    markPingMiss(base);
+    return;
+  }
   const beamer =
     result.kind === 'status'
       ? beamerFromStatus(base, result.body)
@@ -1321,22 +1347,14 @@ const refreshBeamer = async (base: BeamerBase) => {
   }
 };
 
-const pollBeamerFleet = async () => {
+export async function refreshAllBeamers() {
   const bases = Array.from(beamers.values()).map(({ address, host }) => ({
     address,
     host,
   }));
-  await Promise.all(
-    bases.map(async (base) => {
-      try {
-        await refreshBeamer(base);
-      } catch {
-        // not necessarily lost, might just be blocked :P
-      }
-    }),
-  );
+  await Promise.all(bases.map((base) => refreshBeamer(base)));
   sendBeamerFleet();
-};
+}
 
 let beamerEvents: BeamerEventsHandle | null = null;
 const statusRefreshInFlight = new Set<string>();
@@ -1353,8 +1371,6 @@ const refreshBeamerForEvent = async (beamerId: string) => {
       host: beamer.host,
     });
     sendBeamerFleet();
-  } catch {
-    // blocked or gone; the periodic poll will catch up
   } finally {
     statusRefreshInFlight.delete(beamerId);
   }
@@ -1481,10 +1497,6 @@ const updateBeamerBrowser = () => {
 
 const stopBrowse = () => {
   beamerBrowseOpen = false;
-  if (beamerPollTimer) {
-    clearInterval(beamerPollTimer);
-    beamerPollTimer = null;
-  }
   updateBeamerBrowser();
 };
 
@@ -1504,11 +1516,7 @@ const selectedBeamerDir = (beamerId: string) => {
 export function startBeamerBrowse() {
   beamerBrowseOpen = true;
   startBeamerBrowser();
-  if (!beamerPollTimer) {
-    beamerPollTimer = setInterval(() => {
-      pollBeamerFleet().catch(() => {});
-    }, FLEET_POLL_MS);
-  }
+  refreshAllBeamers().catch(() => {}); // truth-check the fleet the moment the dialog opens
   sendBeamerFleet();
 }
 
@@ -1728,12 +1736,6 @@ const runOverFleet = async (
   return failures;
 };
 
-export function refreshAllBeamers() {
-  return runOverFleet((beamer) =>
-    refreshBeamer({ address: beamer.address, host: beamer.host }),
-  );
-}
-
 export async function resetBeamer(beamerId: string) {
   const existing = beamers.get(beamerId);
   if (!existing) {
@@ -1741,12 +1743,7 @@ export async function resetBeamer(beamerId: string) {
   }
   const base = { address: existing.address, host: existing.host };
   await requestBeamerReset(toBeamerOrigin(base.address));
-
-  try {
-    await refreshBeamer(base);
-  } catch {
-    // The next poll will catch up.
-  }
+  await refreshBeamer(base);
   sendBeamerFleet();
 }
 
@@ -1754,11 +1751,7 @@ export function resetAllBeamers() {
   return runOverFleet(async (beamer) => {
     const base = { address: beamer.address, host: beamer.host };
     await requestBeamerReset(toBeamerOrigin(base.address));
-    try {
-      await refreshBeamer(base);
-    } catch {
-      // The next poll will catch up.
-    }
+    await refreshBeamer(base);
   });
 }
 

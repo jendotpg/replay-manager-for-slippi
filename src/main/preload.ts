@@ -87,7 +87,7 @@ const electronHandler = {
     ipcRenderer.invoke('refreshBeamerStatus', beamerId),
   resetBeamer: (beamerId: string): Promise<void> =>
     ipcRenderer.invoke('resetBeamer', beamerId),
-  refreshAllBeamers: (): Promise<string[]> =>
+  refreshAllBeamers: (): Promise<void> =>
     ipcRenderer.invoke('refreshAllBeamers'),
   resetAllBeamers: (): Promise<string[]> =>
     ipcRenderer.invoke('resetAllBeamers'),

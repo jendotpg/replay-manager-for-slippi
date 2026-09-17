@@ -630,6 +630,7 @@ export type Beamer = {
   secsSinceCharacterChange?: number;
   secsSinceGameStart?: number;
   reported: boolean;
+  pingFails: number;
   game: BeamerGame | null;
   subscribed: boolean;
   label: string;

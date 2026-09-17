@@ -284,10 +284,7 @@ export default function BeamerDialog({
     setBusyWith({ kind: 'refresh', target: 'all' });
     setError('');
     try {
-      const failures = await window.electron.refreshAllBeamers();
-      if (failures.length > 0) {
-        setError(`Refreshed the rest, but not these:\n${failures.join('\n')}`);
-      }
+      await window.electron.refreshAllBeamers();
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);
     } finally {
