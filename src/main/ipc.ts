@@ -946,6 +946,10 @@ export default function setupIPCs(
       throw new Error('Please set start.gg API key');
     }
 
+    if (originalSet.id.toString().startsWith('preview_')) {
+      throw new Error('Please start bracket first');
+    }
+
     try {
       await callSet(sggApiKey, originalSet.id);
     } catch (e: unknown) {
@@ -1010,6 +1014,10 @@ export default function setupIPCs(
     ): Promise<Set | undefined> => {
       if (!sggApiKey) {
         throw new Error('Please set start.gg API key');
+      }
+
+      if (originalSet.id.toString().startsWith('preview_')) {
+        throw new Error('Please start bracket first');
       }
 
       let updatedSet: Set | undefined;
