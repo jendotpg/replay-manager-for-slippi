@@ -999,9 +999,10 @@ const drain = () => {
   }
 };
 
-function cancelBeamerDownloads() {
+export function cancelBeamerDownload() {
   const removed = queue.length > 0;
   queue.length = 0;
+  clearWake();
   if (active) {
     active.reason = 'cancel';
     active.controller.abort();
@@ -1125,28 +1126,6 @@ function prioritizeBeamer(beamerId: string) {
     drain();
   }
 }
-
-export function cancelBeamerDownload() {
-  cancelBeamerDownloads();
-}
-
-const clearBeamerDownloadQueue = () => {
-  queue.length = 0;
-  clearWake();
-  resetWave();
-  lastSentAt = 0;
-  if (active) {
-    active.reason = 'cancel';
-    active.controller.abort();
-  }
-  batches.forEach((batch) => {
-    if (!batch.settled) {
-      batch.settled = true;
-      batch.resolve();
-    }
-  });
-  batches.clear();
-};
 
 const originByBeamer = new Map<string, string>();
 const nameByBeamer = new Map<string, string>();
@@ -1600,7 +1579,7 @@ export function getReplayCacheSize() {
 }
 
 export async function clearReplayCache() {
-  clearBeamerDownloadQueue();
+  cancelBeamerDownload();
   await wipeReplayCache(replayCacheFullPath);
 }
 
