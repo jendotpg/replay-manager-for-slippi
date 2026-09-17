@@ -29,7 +29,13 @@ import {
   Warning,
 } from '@mui/icons-material';
 import { useEffect, useRef, useState } from 'react';
-import { BeamerGame, BeamerFleet, BeamerPort, Beamer } from '../common/types';
+import {
+  BeamerGame,
+  BeamerFleet,
+  BeamerPort,
+  Beamer,
+  LabeledBeamer,
+} from '../common/types';
 import {
   beamerDeadColor,
   beamerDownWarnings,
@@ -45,7 +51,7 @@ type BeamerBusy = {
 };
 
 function beamerKey(beamer: Beamer) {
-  return beamer.beamerId || beamer.address;
+  return beamer.beamerId;
 }
 
 function warningsFor(beamer: Beamer) {
@@ -80,7 +86,7 @@ function BeamersTooltip({
   beamers,
 }: {
   showWarnings: boolean;
-  beamers: Beamer[];
+  beamers: LabeledBeamer[];
 }) {
   return (
     <Stack gap="2px">
@@ -187,9 +193,9 @@ export default function BeamerDialog({
     error: '',
   });
   const [busyWith, setBusyWith] = useState<BeamerBusy | null>(null);
-  const [confirmingReset, setConfirmingReset] = useState<Beamer | 'all' | null>(
-    null,
-  );
+  const [confirmingReset, setConfirmingReset] = useState<
+    LabeledBeamer | 'all' | null
+  >(null);
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const [maxGamesFromIndex, setMaxGamesFromIndex] = useState(4);
@@ -500,10 +506,7 @@ export default function BeamerDialog({
                     <NotificationsActive color="action" fontSize="small" />
                   );
                 }
-                const beamerDetail = beamer.beamerId || beamer.host;
-                const beamerTitle = beamerDetail
-                  ? `${beamer.label} · ${beamerDetail}`
-                  : beamer.label;
+                const beamerTitle = `${beamer.label} · ${beamer.beamerId}`;
                 return (
                   <TableRow
                     hover

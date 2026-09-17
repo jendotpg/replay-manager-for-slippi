@@ -632,11 +632,12 @@ export type Beamer = {
   pingFails: number;
   game: BeamerGame | null;
   subscribed: boolean;
-  label: string;
 };
 
+export type LabeledBeamer = Beamer & { label: string };
+
 export type BeamerFleet = {
-  beamers: Beamer[];
+  beamers: LabeledBeamer[];
   browsing: boolean;
   error: string;
 };

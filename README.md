@@ -5,6 +5,10 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 TODO:
 
 - CODE QUALITY: clean this whole thing up :3
+- BUGFIX: you need to be able to drop a name over a snackbar !!!
+
+  - is there a better place on the screen for the snackbar? top right, maybe?
+
 - actually use this in tournament a few times:
 
   - ~~NYSE redemption (1 router)~~ ✅

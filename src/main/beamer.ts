@@ -128,7 +128,6 @@ function beamerFromStatus(
     pingFails: 0,
     game: asGame(status.game),
     subscribed: false,
-    label: '',
   };
 }
 
@@ -146,7 +145,6 @@ function unreportedBeamer(base: Pick<Beamer, 'address' | 'host'>): Beamer {
     pingFails: 0,
     game: null,
     subscribed: false,
-    label: '',
   };
 }
 
@@ -537,19 +535,15 @@ async function getBeamerIndex(origin: string) {
   };
 }
 
-function beamerLabel(origin: string, beamerId: string) {
-  return beamerId || origin.replace(/^http:\/\//, '');
-}
-
-function labelFor(beamer: Pick<Beamer, 'beamerName' | 'beamerId' | 'address'>) {
-  return beamer.beamerName || beamer.beamerId || beamer.address;
-}
-
-function beamerDirFor(cacheRoot: string, origin: string, beamerId: string) {
-  const name = beamerLabel(origin, beamerId).replace(/:/g, '_');
-  const label = sanitize(name);
+function beamerDirFor(cacheRoot: string, beamerId: string) {
+  if (!beamerId) {
+    throw new Error(
+      'Refusing to cache replays for a beamer with no station id.',
+    );
+  }
+  const label = sanitize(beamerId.replace(/:/g, '_'));
   if (!label) {
-    throw new Error(`Could not derive a cache directory from ${origin}.`);
+    throw new Error(`Could not derive a cache directory for ${beamerId}.`);
   }
   return path.join(cacheRoot, label);
 }
@@ -1157,19 +1151,20 @@ const clearBeamerDownloadQueue = () => {
 const originByBeamer = new Map<string, string>();
 const nameByBeamer = new Map<string, string>();
 
-function rememberBeamer(beamerId: string, origin: string, name: string) {
+function rememberBeamer(
+  beamerId: string,
+  origin: string,
+  name: string | undefined,
+) {
+  if (!beamerId || !name) {
+    return;
+  }
   originByBeamer.set(beamerId, origin);
   nameByBeamer.set(beamerId, name);
 }
 
-const beamerLabelFor = (beamerId: string) => {
-  const remembered = nameByBeamer.get(beamerId);
-  if (remembered) {
-    return remembered;
-  }
-  const origin = originByBeamer.get(beamerId);
-  return origin ? beamerLabel(origin, beamerId) : beamerId;
-};
+const beamerLabel = (beamerId: string) =>
+  nameByBeamer.get(beamerId) || beamerId || undefined;
 
 const beamers = new Map<string, Beamer>();
 let beamerBrowse: BeamerBrowseHandle | null = null;
@@ -1188,11 +1183,7 @@ function rememberBeamerSubscription(origin: string, beamer: Beamer) {
     return;
   }
   subscribedBeamers.set(beamer.beamerId, origin);
-  rememberBeamer(
-    beamer.beamerId,
-    origin,
-    beamer.beamerName || beamerLabel(origin, beamer.beamerId),
-  );
+  rememberBeamer(beamer.beamerId, origin, beamer.beamerName);
 }
 
 const autoSubscribeCandidate = (beamer: Beamer) =>
@@ -1208,12 +1199,18 @@ const listedBeamers = () =>
       (beamer) =>
         beamer.reported && beamer.pingFails < PING_FAILS_BEFORE_OFFLINE,
     )
-    .sort((a, b) => labelFor(a).localeCompare(labelFor(b)))
-    .map((beamer) => ({
-      ...beamer,
-      subscribed: isSubscribed(beamer),
-      label: labelFor(beamer),
-    }));
+    .map((beamer) => {
+      const label = beamerLabel(beamer.beamerId);
+      if (!label) {
+        throw new Error('Refusing to list a beamer with no station id.');
+      }
+      return {
+        ...beamer,
+        subscribed: isSubscribed(beamer),
+        label,
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
 
 const buildBeamerFleet = (): BeamerFleet => ({
   beamers: listedBeamers(),
@@ -1233,7 +1230,7 @@ const pruneStaleReplaysFor = async (
   if (!beamer.beamerId) {
     return;
   }
-  const dest = beamerDirFor(beamerFullPath, origin, beamer.beamerId);
+  const dest = beamerDirFor(beamerFullPath, beamer.beamerId);
   const cached = await listCachedReplays(dest);
   if (cached.length === 0) {
     return;
@@ -1291,6 +1288,11 @@ const refreshBeamer = async (base: BeamerBase) => {
       ? beamerFromStatus(base, result.body)
       : unreportedBeamer(base);
 
+  if (result.kind === 'status' && !beamer.beamerId) {
+    markPingMiss(base);
+    return;
+  }
+
   const key = beamer.beamerId || base.address; // key by address until uuid is reported
   const previous =
     (beamer.beamerId ? beamers.get(beamer.beamerId) : undefined) ||
@@ -1310,7 +1312,7 @@ const refreshBeamer = async (base: BeamerBase) => {
     rememberBeamer(
       beamer.beamerId,
       origin,
-      beamer.beamerName || beamerLabel(origin, beamer.beamerId),
+      beamer.beamerName || beamer.beamerId,
     );
   }
 
@@ -1368,14 +1370,18 @@ const onBeamerEvent = (event: BeamerEvent) => {
       (beamer ? toBeamerOrigin(beamer.address) : '');
     if (origin) {
       try {
+        const label = beamerLabel(event.beamerId);
+        if (!label) {
+          throw new Error('Refusing to pull for a beamer with no station id.');
+        }
         enqueueBeamerDownload(
           {
-            dest: beamerDirFor(beamerFullPath, origin, event.beamerId),
+            dest: beamerDirFor(beamerFullPath, event.beamerId),
             name: event.replay.name,
             url: new URL(event.replay.url, origin).toString(),
             size: event.replay.size,
             beamerId: event.beamerId,
-            beamerName: beamerLabelFor(event.beamerId),
+            beamerName: label,
           },
           'low',
         );
@@ -1507,14 +1513,18 @@ export async function selectBeamer(beamerId: string, maxGames: number) {
   const indexPromise = getBeamerIndex(origin);
   const statusPromise = getBeamerStatus(origin).catch(() => null);
   const { beamerId: indexBeamerId, files } = await indexPromise;
+  const remembered = beamerLabel(indexBeamerId);
+  if (!remembered) {
+    throw new Error('A beamer did not report its station id.');
+  }
   const status = await statusPromise;
   const beamerName =
     status?.kind === 'status' && typeof status.body.station_name === 'string'
       ? status.body.station_name
       : '';
-  const label = beamerName || beamerLabel(origin, indexBeamerId);
+  const label = beamerName || remembered;
 
-  const dest = beamerDirFor(beamerFullPath, origin, indexBeamerId);
+  const dest = beamerDirFor(beamerFullPath, indexBeamerId);
 
   await mkdir(dest, { recursive: true });
   rememberBeamer(indexBeamerId, origin, label);
@@ -1544,12 +1554,11 @@ export async function refreshFromBeamer(
   }
 
   const { files } = await getBeamerIndex(origin);
-  await enqueueBeamerPull(
-    dir,
-    files.slice(0, maxGames),
-    beamerId,
-    beamerLabelFor(beamerId),
-  );
+  const label = beamerLabel(beamerId);
+  if (!label) {
+    throw new Error('Those replays are no longer loaded from a Beamer.');
+  }
+  await enqueueBeamerPull(dir, files.slice(0, maxGames), beamerId, label);
 }
 
 export async function getPreviousBeamerReplay(beamerId: string, dir: string) {
@@ -1579,7 +1588,11 @@ export async function downloadPreviousBeamerReplay(
     return;
   }
 
-  await enqueueBeamerPull(dir, [previous], beamerId, beamerLabelFor(beamerId));
+  const label = beamerLabel(beamerId);
+  if (!label) {
+    throw new Error('Those replays are no longer loaded from a Beamer.');
+  }
+  await enqueueBeamerPull(dir, [previous], beamerId, label);
 }
 
 export function getReplayCacheSize() {
@@ -1662,7 +1675,7 @@ const runOverFleet = async (
         result.reason instanceof Error
           ? result.reason.message
           : String(result.reason);
-      failures.push(`${labelFor(beamer)}: ${reason}`);
+      failures.push(`${beamer.label}: ${reason}`);
     }
   });
 
