@@ -729,8 +729,6 @@ let wave: BeamerWave = {
   cancelled: false,
 };
 
-/* eslint-disable no-use-before-define */
-
 const nextSeq = () => {
   seqCounter += 1;
   return seqCounter;
@@ -754,6 +752,7 @@ const scheduleWake = (ms: number) => {
   wakeTimer = setTimeout(
     () => {
       wakeTimer = null;
+      // eslint-disable-next-line no-use-before-define
       drain();
     },
     Math.max(0, ms),
@@ -883,6 +882,7 @@ const finishActive = (batch?: Batch) => {
   if (batch) {
     finalizeIfDone(batch);
   }
+  // eslint-disable-next-line no-use-before-define
   drain();
   finishWave();
 };
@@ -947,6 +947,7 @@ const runJob = (job: BeamerDownloadJob) => {
       if (reason === 'preempt') {
         active = null;
         requeue(job, Date.now(), false);
+        // eslint-disable-next-line no-use-before-define
         drain();
         report();
         return;
@@ -956,6 +957,7 @@ const runJob = (job: BeamerDownloadJob) => {
         active = null;
         job.requeues += 1;
         requeue(job, Date.now() + failure.retryAfterMs, true);
+        // eslint-disable-next-line no-use-before-define
         drain();
         report();
         return;
@@ -1144,8 +1146,6 @@ const clearBeamerDownloadQueue = () => {
   });
   batches.clear();
 };
-
-/* eslint-enable no-use-before-define */
 
 type BeamerDeps = {
   sendFleet: (fleet: BeamerFleet) => void;
