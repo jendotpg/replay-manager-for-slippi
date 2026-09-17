@@ -4,8 +4,7 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-- BUGFIX: stations that refuse a refresh must drop off the list
-- BUGFIX: when refreshing the same dir, keep the current check status (can default new game(s) to checked))
+- BUGFIX: when refreshing the same dir, keep the current check status (can default new game(s) to checked)
 - BUGFIX: when downloading in a visible station, sometimes "download next row" appears when it shouldnt
 
   - first of all, we should rename "download next row" to "download next replay"

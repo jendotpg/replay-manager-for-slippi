@@ -220,6 +220,23 @@ function applyAllReplaysSelected(allReplays: Replay[], selected: boolean) {
     });
 }
 
+function applyKeptReplaysSelected(
+  currentReplays: Replay[],
+  newReplays: Replay[],
+) {
+  const currentSelection = new Map(
+    currentReplays.map((replay) => [replay.fileName, replay.selected]),
+  );
+  newReplays.forEach((replay) => {
+    const currentSelected = currentSelection.get(replay.fileName);
+    if (currentSelected !== undefined) {
+      replay.selected = currentSelected;
+    } else {
+      replay.selected = replay.invalidReasons.length === 0;
+    }
+  });
+}
+
 function Hello() {
   const [slpDownloadStatus, setSlpDownloadStatus] = useState<DownloadStatus>({
     status: 'idle',
@@ -637,6 +654,11 @@ function Hello() {
   const [dirDeleting, setDirDeleting] = useState(false);
   const [dirExists, setDirExists] = useState(true);
   const [replays, setReplays] = useState<Replay[]>([]);
+  const replaysRef = useRef(replays);
+  const walkedDirRef = useRef('');
+  useEffect(() => {
+    replaysRef.current = replays;
+  }, [replays]);
   const [replayRefs, setReplayRefs] = useState<RefObject<HTMLDivElement>[]>([]);
   const [invalidReplays, setInvalidReplays] = useState<InvalidReplay[]>([]);
   const [gettingReplays, setGettingReplays] = useState(false);
@@ -724,8 +746,10 @@ function Hello() {
       const {
         replays: newReplays,
         invalidReplays: newInvalidReplays,
+        dir: walkedDir,
         replayLoadCount: newReplayLoadCount,
       } = await window.electron.getCurrentReplays();
+      walkedDirRef.current = walkedDir;
       setAllReplaysSelected(true);
       applyAllReplaysSelected(newReplays, true);
       setBatchActives(
@@ -780,6 +804,12 @@ function Hello() {
         const res = await window.electron.getCurrentReplays();
         newReplays = res.replays;
         newInvalidReplays = res.invalidReplays;
+        if (res.dir === walkedDirRef.current) {
+          applyKeptReplaysSelected(replaysRef.current, newReplays);
+        } else {
+          applyAllReplaysSelected(newReplays, true);
+        }
+        walkedDirRef.current = res.dir;
         setReplayLoadCount(res.replayLoadCount);
         setDirExists(true);
         if (triggerGuide && newReplays.length > 0) {
@@ -795,8 +825,11 @@ function Hello() {
         setGuideBackdropOpen(false);
         setGuideState(GuideState.NONE);
       }
-      setAllReplaysSelected(true);
-      applyAllReplaysSelected(newReplays, true);
+      setAllReplaysSelected(
+        newReplays.every(
+          (replay) => replay.selected || replay.invalidReasons.length > 0,
+        ),
+      );
       setBatchActives(
         getNewBatchActives(newReplays.filter((replay) => replay.selected)),
       );

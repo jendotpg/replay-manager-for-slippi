@@ -654,17 +654,8 @@ export default function setupIPCs(
   setOwnEnforcerSetting(enforcerSetting);
   ipcMain.removeHandler('getCurrentReplays');
   ipcMain.handle('getCurrentReplays', async () => {
-    // Fork change vs upstream's getReplaysInDir, which throws here: no
-    // selection is a valid quiet state now, not an error — startup and the
-    // beamer flow rely on the clean empty result instead of the UI's
-    // missing-folder error state.
     if (replayDirs.length === 0 && !undoSrcFullPath) {
-      replayLoadCount += 1;
-      return {
-        replays: [],
-        invalidReplays: [],
-        replayLoadCount,
-      };
+      throw new Error();
     }
 
     const replayDir = undoSrcFullPath
@@ -706,7 +697,11 @@ export default function setupIPCs(
         currentReplayLoadCount,
       );
     }
-    return { ...retReplays, replayLoadCount: currentReplayLoadCount };
+    return {
+      ...retReplays,
+      dir: replayDir,
+      replayLoadCount: currentReplayLoadCount,
+    };
   });
 
   ipcMain.removeHandler('writeReplays');

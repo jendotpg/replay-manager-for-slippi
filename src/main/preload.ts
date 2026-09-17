@@ -102,6 +102,7 @@ const electronHandler = {
   getCurrentReplays: (): Promise<{
     replays: Replay[];
     invalidReplays: InvalidReplay[];
+    dir: string;
     replayLoadCount: number;
   }> => ipcRenderer.invoke('getCurrentReplays'),
   writeReplays: (
