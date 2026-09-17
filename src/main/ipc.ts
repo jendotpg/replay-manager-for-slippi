@@ -138,10 +138,12 @@ import {
   resetBeamer,
   refreshAllBeamers,
   resetAllBeamers,
-  getMaxGamesFromIndex,
-  setMaxGamesFromIndex,
+  clampMaxGamesFromIndex,
   getReplayCacheSize,
   clearReplayCache,
+  beamerFullPath,
+  replayCacheFullPath,
+  beamerFileComplete,
 } from './beamer';
 import {
   assignOfflineModeSetStation,
@@ -168,9 +170,7 @@ import {
 
 let entrantsWindow: BrowserWindow | null = null;
 
-const replayCacheFullPath = path.join(app.getPath('userData'), 'replayCache');
 const protocolLoadFullPath = path.join(replayCacheFullPath, 'protocol');
-const beamerFullPath = path.join(replayCacheFullPath, 'beamer');
 const undoDstFullPath = path.join(app.getPath('userData'), 'undo');
 
 export default function setupIPCs(
@@ -224,6 +224,25 @@ export default function setupIPCs(
   function removeReplayDirs(pred: (replayDir: ReplayDir) => boolean) {
     replayDirs = replayDirs.filter((replayDir) => !pred(replayDir));
     announceReplayDir();
+  }
+
+  function announceIfActive(dest: string) {
+    const top =
+      replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
+    if (top && top.dir === dest) {
+      announceReplayDir();
+    }
+  }
+
+  function beamerReplayDir(beamerId: string) {
+    const current = replayDirs.find(
+      (replayDir) =>
+        replayDir.dirType === 'beamer' && replayDir.beamerId === beamerId,
+    );
+    if (!current) {
+      throw new Error('Those replays are no longer loaded from a Beamer.');
+    }
+    return current.dir;
   }
 
   let slpDownloadStatus: DownloadStatus = { status: 'idle' };
@@ -404,34 +423,12 @@ export default function setupIPCs(
   });
 
   let maxGamesFromIndex = store.get('maxGamesFromIndex', 4);
-  let autoSubscribeBeamers = store.get('autoSubscribeBeamers', true);
 
-  const sendBeamerDownloadStatus = (status: DownloadStatus) => {
-    if (mainWindow) {
-      mainWindow.webContents.send('beamerDownloadStatus', status);
-    }
-  };
-  initBeamers({
-    sendFleet: (fleet) => {
-      mainWindow.webContents.send('beamerFleet', fleet);
-    },
-    sendDownloadStatus: (status) => sendBeamerDownloadStatus(status),
-    getReplayDirs: () => replayDirs,
-    addReplayDir: (entry) => addReplayDir(entry),
-    removeReplayDirs: (pred) => removeReplayDirs(pred),
-    announceReplayDir: () => announceReplayDir(),
-    getAutoSubscribe: () => autoSubscribeBeamers,
-    setAutoSubscribePersisted: (on) => {
-      autoSubscribeBeamers = on;
-      store.set('autoSubscribeBeamers', on);
-    },
-    getMaxGames: () => maxGamesFromIndex,
-    setMaxGamesPersisted: (n) => {
-      maxGamesFromIndex = n;
-      store.set('maxGamesFromIndex', n);
-    },
-    beamerFullPath,
-    replayCacheFullPath,
+  initBeamers(mainWindow, store.get('autoSubscribeBeamers', true));
+
+  beamerFileComplete.removeAllListeners('fileComplete');
+  beamerFileComplete.on('fileComplete', (dest) => {
+    announceIfActive(dest);
   });
 
   ipcMain.removeHandler('cancelBeamerDownload');
@@ -440,23 +437,54 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('selectBeamer');
-  ipcMain.handle('selectBeamer', (event, beamerId: string) =>
-    selectBeamer(beamerId),
-  );
+  ipcMain.handle('selectBeamer', async (event, beamerId: string) => {
+    const {
+      dest,
+      display,
+      beamerId: indexBeamerId,
+    } = await selectBeamer(beamerId, maxGamesFromIndex);
+    let existingRemoved = false;
+    removeReplayDirs((replayDir) => {
+      if (existingRemoved || replayDir.dir !== dest) {
+        return false;
+      }
+      existingRemoved = true;
+      return true;
+    });
+    addReplayDir({
+      dir: dest,
+      dirType: 'beamer',
+      display,
+      usbKey: '',
+      beamerId: indexBeamerId,
+    });
+    return dest;
+  });
 
   ipcMain.removeHandler('refreshFromBeamer');
-  ipcMain.handle('refreshFromBeamer', (event, beamerId: string) =>
-    refreshFromBeamer(beamerId),
-  );
+  ipcMain.handle('refreshFromBeamer', async (event, beamerId: string) => {
+    const dir = beamerReplayDir(beamerId);
+    await refreshFromBeamer(beamerId, dir, maxGamesFromIndex);
+    announceIfActive(dir);
+  });
 
   ipcMain.removeHandler('getPreviousBeamerReplay');
-  ipcMain.handle('getPreviousBeamerReplay', (event, beamerId: string) =>
-    getPreviousBeamerReplay(beamerId),
-  );
+  ipcMain.handle('getPreviousBeamerReplay', (event, beamerId: string) => {
+    try {
+      return getPreviousBeamerReplay(beamerId, beamerReplayDir(beamerId));
+    } catch {
+      return '';
+    }
+  });
 
   ipcMain.removeHandler('downloadPreviousBeamerReplay');
-  ipcMain.handle('downloadPreviousBeamerReplay', (event, beamerId: string) =>
-    downloadPreviousBeamerReplay(beamerId),
+  ipcMain.handle(
+    'downloadPreviousBeamerReplay',
+    async (event, beamerId: string) => {
+      const dir = beamerReplayDir(beamerId);
+      await downloadPreviousBeamerReplay(beamerId, dir);
+      announceIfActive(dir);
+    },
   );
 
   ipcMain.removeHandler('getReplayCacheSize');
@@ -464,6 +492,11 @@ export default function setupIPCs(
 
   ipcMain.removeHandler('clearReplayCache');
   ipcMain.handle('clearReplayCache', async () => {
+    const cached = (replayDir: ReplayDir) =>
+      replayDir.dir.startsWith(replayCacheFullPath);
+    if (replayDirs.some(cached)) {
+      removeReplayDirs(cached);
+    }
     await clearReplayCache();
   });
 
@@ -493,6 +526,7 @@ export default function setupIPCs(
 
   ipcMain.removeHandler('setBeamersAutoSubscribe');
   ipcMain.handle('setBeamersAutoSubscribe', (event, on: boolean) => {
+    store.set('autoSubscribeBeamers', on);
     setBeamersAutoSubscribe(on);
   });
 
@@ -513,13 +547,16 @@ export default function setupIPCs(
   ipcMain.handle('resetAllBeamers', () => resetAllBeamers());
 
   ipcMain.removeHandler('getMaxGamesFromIndex');
-  ipcMain.handle('getMaxGamesFromIndex', () => getMaxGamesFromIndex());
+  ipcMain.handle('getMaxGamesFromIndex', () => maxGamesFromIndex);
 
   ipcMain.removeHandler('setMaxGamesFromIndex');
   ipcMain.handle(
     'setMaxGamesFromIndex',
     (event, newMaxGamesFromIndex: number) => {
-      setMaxGamesFromIndex(newMaxGamesFromIndex);
+      const clamped = clampMaxGamesFromIndex(newMaxGamesFromIndex);
+      maxGamesFromIndex = clamped;
+      store.set('maxGamesFromIndex', clamped);
+      return clamped;
     },
   );
 

@@ -1,6 +1,8 @@
+import { app, BrowserWindow } from 'electron';
 import DnsSd, { DnsSdBrowse } from '@fugood/dns-sd';
 import { createSocket } from 'dgram';
 import os from 'os';
+import { EventEmitter } from 'events';
 import { mkdir, readdir, rm, stat, unlink } from 'fs/promises';
 import path from 'path';
 import sanitize from 'sanitize-filename';
@@ -18,7 +20,6 @@ import {
   BeamerPort,
   BeamerStatusBody,
   DownloadStatus,
-  ReplayDir,
 } from '../common/types';
 import { assertInteger } from '../common/asserts';
 import { downloadFile, sizeOf, toDownloadError } from './download';
@@ -33,6 +34,12 @@ const EVENT_PORT = 34700;
 
 const STATUS_TIMEOUT_MS = 4000;
 const MAX_STATUS_BYTES = 1024 * 1024;
+
+export const replayCacheFullPath = path.join(
+  app.getPath('userData'),
+  'replayCache',
+);
+export const beamerFullPath = path.join(replayCacheFullPath, 'beamer');
 
 function asString(value: unknown) {
   return typeof value === 'string' ? value : '';
@@ -697,16 +704,16 @@ type BeamerWave = {
   cancelled: boolean;
 };
 
-let onStatus: (status: DownloadStatus) => void;
-let onFileComplete: (dest: string) => void;
+let mainWindow: BrowserWindow | undefined;
+let autoSubscribeBeamers = false;
 
-function initBeamerDownloadQueue(deps: {
-  onStatus: (status: DownloadStatus) => void;
-  onFileComplete: (dest: string) => void;
-}) {
-  onStatus = deps.onStatus;
-  onFileComplete = deps.onFileComplete;
-}
+const sendBeamerDownloadStatus = (status: DownloadStatus) => {
+  mainWindow?.webContents.send('beamerDownloadStatus', status);
+};
+
+export const beamerFileComplete = new EventEmitter<{
+  fileComplete: [dest: string];
+}>();
 
 const queue: BeamerDownloadJob[] = [];
 const batches = new Map<number, Batch>();
@@ -803,7 +810,7 @@ const report = (force = false) => {
     progress = (wave.doneFiles / wave.totalFiles) * 100;
   }
 
-  onStatus({
+  sendBeamerDownloadStatus({
     status: 'downloading',
     progress,
     currentFile: active?.job.name ?? '',
@@ -819,13 +826,13 @@ const finishWave = () => {
     return;
   }
   if (wave.cancelled) {
-    onStatus({
+    sendBeamerDownloadStatus({
       status: 'cancelled',
       filesDone: wave.doneFiles,
       totalFiles: wave.totalFiles,
     });
   } else if (wave.failures.size > 0) {
-    onStatus({
+    sendBeamerDownloadStatus({
       status: 'error',
       failedFiles: Array.from(
         wave.failures.values(),
@@ -833,7 +840,7 @@ const finishWave = () => {
       ),
     });
   } else if (wave.totalFiles > 0) {
-    onStatus({ status: 'success' });
+    sendBeamerDownloadStatus({ status: 'success' });
   }
   resetWave();
 };
@@ -934,7 +941,7 @@ const runJob = (job: BeamerDownloadJob) => {
       wave.doneFiles += 1;
       wave.doneBytes += Math.max(job.size ?? 0, 0);
       wave.failures.delete(job.beamerId);
-      onFileComplete(job.dest);
+      beamerFileComplete.emit('fileComplete', job.dest);
       finishActive(batch);
       return undefined;
     })
@@ -1147,31 +1154,6 @@ const clearBeamerDownloadQueue = () => {
   batches.clear();
 };
 
-type BeamerDeps = {
-  sendFleet: (fleet: BeamerFleet) => void;
-  sendDownloadStatus: (status: DownloadStatus) => void;
-  getReplayDirs: () => ReplayDir[];
-  addReplayDir: (entry: ReplayDir) => void;
-  removeReplayDirs: (pred: (replayDir: ReplayDir) => boolean) => void;
-  announceReplayDir: () => void;
-  getAutoSubscribe: () => boolean;
-  setAutoSubscribePersisted: (on: boolean) => void;
-  getMaxGames: () => number;
-  setMaxGamesPersisted: (n: number) => void;
-  beamerFullPath: string;
-  replayCacheFullPath: string;
-};
-
-let deps: BeamerDeps;
-
-const announceIfActive = (dest: string) => {
-  const replayDirs = deps.getReplayDirs();
-  const top = replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
-  if (top && top.dir === dest) {
-    deps.announceReplayDir();
-  }
-};
-
 const originByBeamer = new Map<string, string>();
 const nameByBeamer = new Map<string, string>();
 
@@ -1214,7 +1196,7 @@ function rememberBeamerSubscription(origin: string, beamer: Beamer) {
 }
 
 const autoSubscribeCandidate = (beamer: Beamer) =>
-  deps.getAutoSubscribe() &&
+  autoSubscribeBeamers &&
   beamer.reported &&
   Boolean(beamer.beamerId) &&
   !subscribedBeamers.has(beamer.beamerId) &&
@@ -1240,7 +1222,7 @@ const buildBeamerFleet = (): BeamerFleet => ({
 });
 
 const sendBeamerFleet = () => {
-  deps.sendFleet(buildBeamerFleet());
+  mainWindow?.webContents.send('beamerFleet', buildBeamerFleet());
 };
 
 const pruneStaleReplaysFor = async (
@@ -1251,7 +1233,7 @@ const pruneStaleReplaysFor = async (
   if (!beamer.beamerId) {
     return;
   }
-  const dest = beamerDirFor(deps.beamerFullPath, origin, beamer.beamerId);
+  const dest = beamerDirFor(beamerFullPath, origin, beamer.beamerId);
   const cached = await listCachedReplays(dest);
   if (cached.length === 0) {
     return;
@@ -1275,12 +1257,7 @@ const pruneStaleReplaysFor = async (
     return;
   }
 
-  const replayDirs = deps.getReplayDirs();
-  const current =
-    replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
-  if (current?.dir === dest) {
-    deps.announceReplayDir();
-  }
+  beamerFileComplete.emit('fileComplete', dest);
 };
 
 type BeamerBase = Pick<Beamer, 'address' | 'host'>;
@@ -1379,7 +1356,7 @@ const refreshBeamerForEvent = async (beamerId: string) => {
 
 const pullWanted = (beamerId: string) =>
   subscribedBeamers.has(beamerId) ||
-  (deps.getAutoSubscribe() && !unsubscribed.has(beamerId));
+  (autoSubscribeBeamers && !unsubscribed.has(beamerId));
 
 const onBeamerEvent = (event: BeamerEvent) => {
   refreshBeamerForEvent(event.beamerId).catch(() => {});
@@ -1393,7 +1370,7 @@ const onBeamerEvent = (event: BeamerEvent) => {
       try {
         enqueueBeamerDownload(
           {
-            dest: beamerDirFor(deps.beamerFullPath, origin, event.beamerId),
+            dest: beamerDirFor(beamerFullPath, origin, event.beamerId),
             name: event.replay.name,
             url: new URL(event.replay.url, origin).toString(),
             size: event.replay.size,
@@ -1486,7 +1463,7 @@ const stopBeamerBrowser = () => {
 };
 
 const beamerBrowseWanted = () =>
-  beamerBrowseOpen || deps.getAutoSubscribe() || subscribedBeamers.size > 0;
+  beamerBrowseOpen || autoSubscribeBeamers || subscribedBeamers.size > 0;
 
 const updateBeamerBrowser = () => {
   if (beamerBrowseWanted()) {
@@ -1499,19 +1476,6 @@ const updateBeamerBrowser = () => {
 const stopBrowse = () => {
   beamerBrowseOpen = false;
   updateBeamerBrowser();
-};
-
-const selectedBeamerDir = (beamerId: string) => {
-  const current = deps
-    .getReplayDirs()
-    .find(
-      (replayDir) =>
-        replayDir.dirType === 'beamer' && replayDir.beamerId === beamerId,
-    );
-  if (!current) {
-    throw new Error('Those replays are no longer loaded from a Beamer.');
-  }
-  return current.dir;
 };
 
 export function startBeamerBrowse() {
@@ -1529,7 +1493,7 @@ export function getBeamerFleet(): BeamerFleet {
   return buildBeamerFleet();
 }
 
-export async function selectBeamer(beamerId: string) {
+export async function selectBeamer(beamerId: string, maxGames: number) {
   const beamer = beamers.get(beamerId);
   const origin =
     (beamer ? toBeamerOrigin(beamer.address) : '') ||
@@ -1550,50 +1514,30 @@ export async function selectBeamer(beamerId: string) {
       : '';
   const label = beamerName || beamerLabel(origin, indexBeamerId);
 
-  const dest = beamerDirFor(deps.beamerFullPath, origin, indexBeamerId);
+  const dest = beamerDirFor(beamerFullPath, origin, indexBeamerId);
 
   await mkdir(dest, { recursive: true });
-  let existingRemoved = false;
-  deps.removeReplayDirs((replayDir) => {
-    if (existingRemoved || replayDir.dir !== dest) {
-      return false;
-    }
-    existingRemoved = true;
-    return true;
-  });
   rememberBeamer(indexBeamerId, origin, label);
-  deps.addReplayDir({
-    dir: dest,
-    dirType: 'beamer',
-    display: label,
-    usbKey: '',
-    beamerId: indexBeamerId,
-  });
 
   prioritizeBeamer(indexBeamerId);
-  enqueueBeamerPull(
-    dest,
-    files.slice(0, deps.getMaxGames()),
-    indexBeamerId,
-    label,
-  )
-    .then(() => {
-      deps.announceReplayDir();
-      return undefined;
-    })
-    .catch((e) => {
-      deps.sendDownloadStatus({
+  enqueueBeamerPull(dest, files.slice(0, maxGames), indexBeamerId, label).catch(
+    (e) => {
+      sendBeamerDownloadStatus({
         status: 'error',
         failedFiles: [
           `The pull failed: ${e instanceof Error ? e.message : String(e)}`,
         ],
       });
-    });
-  return dest;
+    },
+  );
+  return { dest, display: label, beamerId: indexBeamerId };
 }
 
-export async function refreshFromBeamer(beamerId: string) {
-  const dir = selectedBeamerDir(beamerId);
+export async function refreshFromBeamer(
+  beamerId: string,
+  dir: string,
+  maxGames: number,
+) {
   const origin = originByBeamer.get(beamerId);
   if (!origin) {
     throw new Error('Those replays are no longer loaded from a Beamer.');
@@ -1602,21 +1546,14 @@ export async function refreshFromBeamer(beamerId: string) {
   const { files } = await getBeamerIndex(origin);
   await enqueueBeamerPull(
     dir,
-    files.slice(0, deps.getMaxGames()),
+    files.slice(0, maxGames),
     beamerId,
     beamerLabelFor(beamerId),
   );
-  announceIfActive(dir);
 }
 
-export async function getPreviousBeamerReplay(beamerId: string) {
-  let dir;
+export async function getPreviousBeamerReplay(beamerId: string, dir: string) {
   const origin = originByBeamer.get(beamerId);
-  try {
-    dir = selectedBeamerDir(beamerId);
-  } catch {
-    return '';
-  }
   if (!origin) {
     return '';
   }
@@ -1628,8 +1565,10 @@ export async function getPreviousBeamerReplay(beamerId: string) {
   }
 }
 
-export async function downloadPreviousBeamerReplay(beamerId: string) {
-  const dir = selectedBeamerDir(beamerId);
+export async function downloadPreviousBeamerReplay(
+  beamerId: string,
+  dir: string,
+) {
   const origin = originByBeamer.get(beamerId);
   if (!origin) {
     throw new Error('Those replays are no longer loaded from a Beamer.');
@@ -1641,21 +1580,15 @@ export async function downloadPreviousBeamerReplay(beamerId: string) {
   }
 
   await enqueueBeamerPull(dir, [previous], beamerId, beamerLabelFor(beamerId));
-  announceIfActive(dir);
 }
 
 export function getReplayCacheSize() {
-  return measureReplayCache(deps.replayCacheFullPath);
+  return measureReplayCache(replayCacheFullPath);
 }
 
 export async function clearReplayCache() {
   clearBeamerDownloadQueue();
-  const cached = ({ dir }: ReplayDir) =>
-    dir.startsWith(deps.replayCacheFullPath);
-  if (deps.getReplayDirs().some(cached)) {
-    deps.removeReplayDirs(cached);
-  }
-  await wipeReplayCache(deps.replayCacheFullPath);
+  await wipeReplayCache(replayCacheFullPath);
 }
 
 function setBeamerSubscription(beamerId: string, subscribed: boolean) {
@@ -1682,11 +1615,11 @@ export function setBeamerSubscribed(beamerId: string, subscribed: boolean) {
 }
 
 export function getBeamersAutoSubscribe() {
-  return deps.getAutoSubscribe();
+  return autoSubscribeBeamers;
 }
 
 export function setBeamersAutoSubscribe(on: boolean) {
-  deps.setAutoSubscribePersisted(on);
+  autoSubscribeBeamers = on;
   if (on) {
     const swept = listedBeamers().filter(autoSubscribeCandidate);
     swept.forEach((beamer) =>
@@ -1758,24 +1691,18 @@ export function resetAllBeamers() {
 
 const MAX_GAMES_FROM_INDEX_CEILING = 16;
 
-export function getMaxGamesFromIndex() {
-  return deps.getMaxGames();
-}
-
-export function setMaxGamesFromIndex(newMaxGamesFromIndex: number) {
-  const clamped = Math.min(
+export function clampMaxGamesFromIndex(newMaxGamesFromIndex: number) {
+  return Math.min(
     Math.max(assertInteger(newMaxGamesFromIndex), 1),
     MAX_GAMES_FROM_INDEX_CEILING,
   );
-  deps.setMaxGamesPersisted(clamped);
-  return clamped;
 }
 
-export function initBeamers(init: BeamerDeps) {
-  deps = init;
-  initBeamerDownloadQueue({
-    onStatus: (status) => deps.sendDownloadStatus(status),
-    onFileComplete: (dest) => announceIfActive(dest),
-  });
+export function initBeamers(
+  initMainWindow: BrowserWindow,
+  initAutoSubscribe: boolean,
+) {
+  mainWindow = initMainWindow;
+  autoSubscribeBeamers = initAutoSubscribe;
   updateBeamerBrowser();
 }
