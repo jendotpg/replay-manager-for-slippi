@@ -4,16 +4,26 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-- clean this whole thing up :3
+- CODE QUALITY: clean this whole thing up :3
+- BUGFIX: always count up in fleet view (and show in `XX:XX` format)
+- BUGFIX: stations that refuse a refresh must go red
+- BUGFIX: live station with no game active must go dark, not "green with no glow"
+- BUGFIX: when refreshing the same dir, keep the current check status (can default new game(s) to checked))
+- BUGFIX: when downloading in a visible station, sometimes "download next row" appears when it shouldnt
 
-  - code cleanliness
+  - first of all, we should rename "download next row" to "download next replay"
+  - this should only appear when there's a known OLDER replay to download - newer comes via refresh/subscribe
+  - should never be clickable if there is a replay in flight from the current station
 
 - actually use this in tournament a few times:
-
-  - NYSE redemption (1 router)
+- - ~~NYSE redemption (1 router)~~ ✅
   - NYSE main bracket (1 router, maybe 2 APs - we'll need to test...)
   - dawn of the DED (2-3 sharded routers? 1 router, 2-3 APs? we'll need to test...)
   - if all of these work well, ill submit a PR to upstream
+- more maybe features:
+
+  - teams support?
+  - better set detection?
 
 ## What a Beamer is
 
@@ -161,7 +171,7 @@ The flags that reproduce states the app has to handle:
 
 - `--unhealthy` -> `health: "error"`, which should turn the row's Live light red while still allowing a copy.
 - `--warn "DRIVE FILLING,NO WII"` -> `health: "warn"` with those labels, which should turn the Live light amber and show the labels in its tooltip (a "can't write" warning like `DRIVE FULL` / `NO WII` reads as red).
-- `--unreported` -> `503` on `GET /status`, which should drop the station off the list rather than raising an error - `listedBeamerStations` only lists stations that have reported.
+- `--unreported` -> `503` on `GET /status`, which should drop the station off the list rather than raising an error - `listedBeamers` only lists stations that have reported.
 - `--cap` / `--served` -> the `replay_cap` the station reports and how many replays it publishes, for the `17/512 replays` line.
 
 This test doesn't emulate the USB gadget, the LED, the config file, the reset endpoint's actual destruction, the `409` you get from the station's API lock, or the timing of a real Beamer.
