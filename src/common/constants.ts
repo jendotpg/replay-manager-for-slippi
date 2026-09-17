@@ -316,3 +316,8 @@ export const beamerHealthColor: Record<Beamer['health'], string> = {
   error: '#f04438',
   unknown: '#8a8a8e',
 };
+
+export const beamerDeadColor: Partial<Record<Beamer['health'], string>> = {
+  ok: '#062E03',
+  warn: '#2E1D03',
+};

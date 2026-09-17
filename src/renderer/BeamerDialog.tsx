@@ -31,6 +31,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { BeamerGame, BeamerFleet, BeamerPort, Beamer } from '../common/types';
 import {
+  beamerDeadColor,
   beamerDownWarnings,
   beamerHealthColor,
   characterNames,
@@ -97,28 +98,35 @@ function BeamersTooltip({
 
 const MAX_GAMES_FROM_INDEX = 16; // NUM-REPLAYS-SERVED ceiling
 
-function LiveLight({ beamer }: { beamer: Beamer }) {
+function liveLightColor(beamer: Beamer) {
   const down =
     beamer.health === 'error' ||
     beamer.warnings.some((warning) => beamerDownWarnings.includes(warning));
-  const color = down
-    ? beamerHealthColor.error
-    : beamerHealthColor[beamer.health];
-  const live = Boolean(beamer.game?.live);
+  if (down) {
+    return beamerHealthColor.error;
+  }
+  if (beamer.game?.live) {
+    return beamerHealthColor[beamer.health];
+  }
+  return beamerDeadColor[beamer.health] ?? beamerHealthColor[beamer.health];
+}
+
+function LiveLight({ beamer }: { beamer: Beamer }) {
   const dot = (
     <span
       style={{
-        backgroundColor: color,
+        backgroundColor: liveLightColor(beamer),
         borderRadius: '50%',
-        boxShadow: live ? `0 0 6px ${color}` : 'none',
         display: 'inline-block',
         height: '10px',
         width: '10px',
       }}
     />
   );
-  const title =
-    warningsFor(beamer) || (beamer.health === 'error' ? 'ERROR' : '');
+  let title = warningsFor(beamer);
+  if (!title && beamer.health === 'error') {
+    title = 'ERROR';
+  }
   return title ? (
     <Tooltip arrow title={title}>
       {dot}
@@ -187,18 +195,22 @@ export default function BeamerDialog({
   const [maxGamesFromIndex, setMaxGamesFromIndex] = useState(4);
 
   const baselines = useRef(new Map<string, { secs: number; at: number }>());
-  const liveSecs = (key: string, reported: number | undefined) => {
-    if (reported == null) {
-      baselines.current.delete(key);
-      return undefined;
-    }
-    const previous = baselines.current.get(key);
-    if (!previous || previous.secs !== reported) {
-      baselines.current.set(key, { secs: reported, at: Date.now() });
-      return reported;
-    }
-    return previous.secs + Math.floor((now - previous.at) / 1000);
-  };
+  const makeLiveSecs =
+    (counter: string) => (key: string, reported: number | undefined) => {
+      const id = `${key}#${counter}`;
+      if (reported == null) {
+        baselines.current.delete(id);
+        return undefined;
+      }
+      const previous = baselines.current.get(id);
+      if (!previous || previous.secs !== reported) {
+        baselines.current.set(id, { secs: reported, at: Date.now() });
+        return reported;
+      }
+      return previous.secs + Math.floor((now - previous.at) / 1000);
+    };
+  const portBaseline = makeLiveSecs('port');
+  const gameBaseline = makeLiveSecs('game');
 
   useEffect(() => {
     window.electron.onBeamerFleet((_event, newFleet) => {
@@ -559,7 +571,7 @@ export default function BeamerDialog({
                         variant="body2"
                       >
                         {formatSecs(
-                          liveSecs(
+                          portBaseline(
                             beamerKey(beamer),
                             beamer.secsSincePortChange,
                           ),
@@ -573,7 +585,7 @@ export default function BeamerDialog({
                         variant="body2"
                       >
                         {formatSecs(
-                          liveSecs(
+                          gameBaseline(
                             beamerKey(beamer),
                             beamer.secsSinceGameStart,
                           ),
