@@ -304,8 +304,9 @@ function Hello() {
   const [dirInit, setDirInit] = useState(false);
   const [dirType, setDirType] = useState<DirType>('local');
   const [selectedBeamer, setSelectedBeamer] = useState('');
-  const [beamerNextReplay, setBeamerNextReplay] = useState('');
-  const [downloadingNextReplay, setDownloadingNextReplay] = useState(false);
+  const [beamerPreviousReplay, setBeamerPreviousReplay] = useState('');
+  const [downloadingPreviousReplay, setDownloadingPreviousReplay] =
+    useState(false);
   const [beamerDialogOpen, setBeamerDialogOpen] = useState(false);
   const [copyDir, setCopyDir] = useState('');
   const [host, setHost] = useState<CopyHostOrClient>({
@@ -858,15 +859,16 @@ function Hello() {
 
   useEffect(() => {
     if (!selectedBeamer) {
-      setBeamerNextReplay('');
+      setBeamerPreviousReplay('');
       return undefined;
     }
 
     let current = true;
     (async () => {
-      const next = await window.electron.getNextBeamerReplay(selectedBeamer);
+      const previous =
+        await window.electron.getPreviousBeamerReplay(selectedBeamer);
       if (current) {
-        setBeamerNextReplay(next);
+        setBeamerPreviousReplay(previous);
       }
     })();
     return () => {
@@ -874,19 +876,19 @@ function Hello() {
     };
   }, [selectedBeamer, replays]);
 
-  const downloadNextReplay = async () => {
+  const downloadPreviousReplay = async () => {
     if (!selectedBeamer) {
       return;
     }
 
-    setDownloadingNextReplay(true);
+    setDownloadingPreviousReplay(true);
     try {
-      await window.electron.downloadNextBeamerReplay(selectedBeamer);
+      await window.electron.downloadPreviousBeamerReplay(selectedBeamer);
       await refreshReplays();
     } catch (e: any) {
       showErrorDialog([e instanceof Error ? e.message : e]);
     } finally {
-      setDownloadingNextReplay(false);
+      setDownloadingPreviousReplay(false);
     }
   };
 
@@ -2564,13 +2566,13 @@ function Hello() {
               <>
                 <ReplayList
                   dirInit={dirInit}
-                  nextReplayName={beamerNextReplay}
-                  downloadingNextReplay={
-                    downloadingNextReplay ||
+                  previousReplayName={beamerPreviousReplay}
+                  downloadingPreviousReplay={
+                    downloadingPreviousReplay ||
                     (beamerDownloadStatus.status === 'downloading' &&
-                      beamerDownloadStatus.userInitiated)
+                      beamerDownloadStatus.sources.includes(dirLabel))
                   }
-                  onDownloadNext={downloadNextReplay}
+                  onDownloadPrevious={downloadPreviousReplay}
                   numAvailablePlayers={availablePlayers.length}
                   replays={replays}
                   replayRefs={replayRefs}

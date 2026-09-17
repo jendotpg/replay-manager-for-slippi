@@ -446,7 +446,6 @@ export type DownloadStatus =
       filesDone: number;
       totalFiles: number;
       attempt?: number;
-      userInitiated: boolean;
     }
   | { status: 'error'; failedFiles: string[] }
   | { status: 'cancelled'; filesDone: number; totalFiles: number }

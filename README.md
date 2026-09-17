@@ -4,13 +4,6 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 
 TODO:
 
-- BUGFIX: when refreshing the same dir, keep the current check status (can default new game(s) to checked)
-- BUGFIX: when downloading in a visible station, sometimes "download next row" appears when it shouldnt
-
-  - first of all, we should rename "download next row" to "download next replay"
-  - this should only appear when there's a known OLDER replay to download - newer comes via refresh/subscribe
-  - should never be clickable if there is a replay in flight from the current station
-
 - CODE QUALITY: clean this whole thing up :3
 - actually use this in tournament a few times:
 - - ~~NYSE redemption (1 router)~~ ✅

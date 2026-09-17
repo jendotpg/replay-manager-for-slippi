@@ -68,10 +68,10 @@ const electronHandler = {
     ipcRenderer.invoke('getMaxGamesFromIndex'),
   setMaxGamesFromIndex: (maxGamesFromIndex: number): Promise<number> =>
     ipcRenderer.invoke('setMaxGamesFromIndex', maxGamesFromIndex),
-  getNextBeamerReplay: (beamerId: string): Promise<string> =>
-    ipcRenderer.invoke('getNextBeamerReplay', beamerId),
-  downloadNextBeamerReplay: (beamerId: string): Promise<void> =>
-    ipcRenderer.invoke('downloadNextBeamerReplay', beamerId),
+  getPreviousBeamerReplay: (beamerId: string): Promise<string> =>
+    ipcRenderer.invoke('getPreviousBeamerReplay', beamerId),
+  downloadPreviousBeamerReplay: (beamerId: string): Promise<void> =>
+    ipcRenderer.invoke('downloadPreviousBeamerReplay', beamerId),
   getTrashDir: (): Promise<string> => ipcRenderer.invoke('getTrashDir'),
   chooseTrashDir: (): Promise<string> => ipcRenderer.invoke('chooseTrashDir'),
   clearTrashDir: (): Promise<void> => ipcRenderer.invoke('clearTrashDir'),

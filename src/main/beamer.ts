@@ -556,12 +556,14 @@ async function hasCompleteFile(dest: string, file: BeamerFile) {
   }
 }
 
-async function firstMissingFile(dest: string, files: BeamerFile[]) {
+async function nextOlderMissingFile(dest: string, files: BeamerFile[]) {
   const present = await Promise.all(
     files.map((file) => hasCompleteFile(dest, file)),
   );
-  const i = present.findIndex((have) => !have);
-  return i >= 0 ? files[i] : null;
+  const oldestPresent = present.lastIndexOf(true);
+  return oldestPresent >= 0 && oldestPresent + 1 < files.length
+    ? files[oldestPresent + 1]
+    : null;
 }
 
 async function listCachedReplays(dest: string) {
@@ -810,7 +812,6 @@ const report = (force = false) => {
     filesDone: wave.doneFiles,
     totalFiles: wave.totalFiles,
     attempt: active && active.job.attempt > 1 ? active.job.attempt : undefined,
-    userInitiated: Boolean(active && active.job.batchNumber > 0),
   });
 };
 
@@ -1608,7 +1609,7 @@ export async function refreshFromBeamer(beamerId: string) {
   announceIfActive(dir);
 }
 
-export async function getNextBeamerReplay(beamerId: string) {
+export async function getPreviousBeamerReplay(beamerId: string) {
   let dir;
   const origin = originByBeamer.get(beamerId);
   try {
@@ -1621,25 +1622,25 @@ export async function getNextBeamerReplay(beamerId: string) {
   }
   try {
     const { files } = await getBeamerIndex(origin);
-    return (await firstMissingFile(dir, files))?.name ?? '';
+    return (await nextOlderMissingFile(dir, files))?.name ?? '';
   } catch {
     return '';
   }
 }
 
-export async function downloadNextBeamerReplay(beamerId: string) {
+export async function downloadPreviousBeamerReplay(beamerId: string) {
   const dir = selectedBeamerDir(beamerId);
   const origin = originByBeamer.get(beamerId);
   if (!origin) {
     throw new Error('Those replays are no longer loaded from a Beamer.');
   }
   const { files } = await getBeamerIndex(origin);
-  const next = await firstMissingFile(dir, files);
-  if (!next) {
+  const previous = await nextOlderMissingFile(dir, files);
+  if (!previous) {
     return;
   }
 
-  await enqueueBeamerPull(dir, [next], beamerId, beamerLabelFor(beamerId));
+  await enqueueBeamerPull(dir, [previous], beamerId, beamerLabelFor(beamerId));
   announceIfActive(dir);
 }
 

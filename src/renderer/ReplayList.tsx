@@ -509,9 +509,9 @@ const ReplayListItem = forwardRef(
 
 export default function ReplayList({
   dirInit,
-  nextReplayName,
-  downloadingNextReplay,
-  onDownloadNext,
+  previousReplayName,
+  downloadingPreviousReplay,
+  onDownloadPrevious,
   numAvailablePlayers,
   replays,
   replayRefs,
@@ -525,9 +525,9 @@ export default function ReplayList({
   elevateNames,
 }: {
   dirInit: boolean;
-  nextReplayName: string;
-  downloadingNextReplay: boolean;
-  onDownloadNext: () => void;
+  previousReplayName: string;
+  downloadingPreviousReplay: boolean;
+  onDownloadPrevious: () => void;
   numAvailablePlayers: number;
   replays: Replay[];
   replayRefs: RefObject<HTMLDivElement>[];
@@ -548,12 +548,12 @@ export default function ReplayList({
         zIndex: (theme) => (elevate ? theme.zIndex.drawer + 2 : undefined),
       }}
     >
-      {nextReplayName && (
-        <Tooltip arrow placement="right" title={nextReplayName}>
+      {previousReplayName && (
+        <Tooltip arrow placement="right" title={previousReplayName}>
           <ListItemButton
-            disabled={downloadingNextReplay}
+            disabled={downloadingPreviousReplay}
             disableGutters
-            onClick={onDownloadNext}
+            onClick={onDownloadPrevious}
           >
             <Box
               alignItems="center"
@@ -563,12 +563,12 @@ export default function ReplayList({
               gap="8px"
               justifyContent="center"
             >
-              {downloadingNextReplay ? (
+              {downloadingPreviousReplay ? (
                 <CircularProgress size="20px" />
               ) : (
                 <Add fontSize="small" />
               )}
-              <Typography variant="body2">Download next replay</Typography>
+              <Typography variant="body2">Download previous replay</Typography>
             </Box>
           </ListItemButton>
         </Tooltip>

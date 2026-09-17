@@ -125,8 +125,8 @@ import {
   initBeamers,
   selectBeamer,
   refreshFromBeamer,
-  getNextBeamerReplay,
-  downloadNextBeamerReplay,
+  getPreviousBeamerReplay,
+  downloadPreviousBeamerReplay,
   cancelBeamerDownload,
   getBeamerFleet,
   startBeamerBrowse,
@@ -242,7 +242,6 @@ export default function setupIPCs(
         currentFile: fileName,
         filesDone: completed - 1,
         totalFiles: total,
-        userInitiated: false,
       };
       if (mainWindow) {
         mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
@@ -271,7 +270,6 @@ export default function setupIPCs(
       currentFile: '',
       filesDone: total,
       totalFiles: total,
-      userInitiated: false,
     };
     if (mainWindow) {
       mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
@@ -451,14 +449,14 @@ export default function setupIPCs(
     refreshFromBeamer(beamerId),
   );
 
-  ipcMain.removeHandler('getNextBeamerReplay');
-  ipcMain.handle('getNextBeamerReplay', (event, beamerId: string) =>
-    getNextBeamerReplay(beamerId),
+  ipcMain.removeHandler('getPreviousBeamerReplay');
+  ipcMain.handle('getPreviousBeamerReplay', (event, beamerId: string) =>
+    getPreviousBeamerReplay(beamerId),
   );
 
-  ipcMain.removeHandler('downloadNextBeamerReplay');
-  ipcMain.handle('downloadNextBeamerReplay', (event, beamerId: string) =>
-    downloadNextBeamerReplay(beamerId),
+  ipcMain.removeHandler('downloadPreviousBeamerReplay');
+  ipcMain.handle('downloadPreviousBeamerReplay', (event, beamerId: string) =>
+    downloadPreviousBeamerReplay(beamerId),
   );
 
   ipcMain.removeHandler('getReplayCacheSize');
