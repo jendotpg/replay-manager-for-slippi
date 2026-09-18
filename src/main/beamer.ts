@@ -709,16 +709,13 @@ const listedBeamers = () =>
       (beamer) =>
         beamer.reported && beamer.pingFails < PING_FAILS_BEFORE_OFFLINE,
     )
-    .map((beamer) => {
+    .flatMap((beamer) => {
       const label = beamerLabel(beamer.beamerId);
       if (!label) {
-        throw new Error('Refusing to list a beamer with no station id.');
+        // no station id - not a real beamer, skip it. 
+        return [];
       }
-      return {
-        ...beamer,
-        subscribed: isSubscribed(beamer),
-        label,
-      };
+      return [{ ...beamer, subscribed: isSubscribed(beamer), label }];
     })
     .sort((a, b) => a.label.localeCompare(b.label));
 
