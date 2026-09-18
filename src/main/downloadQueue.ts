@@ -25,7 +25,7 @@ export type BeamerDownloadRequest = {
 };
 
 type Batch = {
-  seq: number; 
+  seq: number;
   remaining: number;
   settled: boolean;
   resolve: () => void;
@@ -34,13 +34,13 @@ type Batch = {
 type Job = {
   request: BeamerDownloadRequest;
   priority: JobPriority;
-  batch: Batch; 
+  batch: Batch;
   waitUntil: number;
-  totalAttempts: number; 
-  written: number; 
-  currentFileAttempts: number; 
-  aborted?: 'preempt' | 'cancel'; 
-  settled: boolean; 
+  totalAttempts: number;
+  written: number;
+  currentFileAttempts: number;
+  aborted?: 'preempt' | 'cancel';
+  settled: boolean;
 };
 
 type BeamerWave = {

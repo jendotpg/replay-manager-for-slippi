@@ -180,6 +180,116 @@ function PortCell({
   );
 }
 
+function LiveSecsText({ reported }: { reported: number | undefined }) {
+  const [now, setNow] = useState(() => Date.now());
+  const baseline = useRef<{ secs: number; at: number } | undefined>(undefined);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  let secs: number | undefined;
+  if (reported == null) {
+    baseline.current = undefined;
+  } else {
+    const previous = baseline.current;
+    if (!previous || previous.secs !== reported) {
+      baseline.current = { secs: reported, at: Date.now() };
+      secs = reported;
+    } else {
+      secs = previous.secs + Math.floor((now - previous.at) / 1000);
+    }
+  }
+
+  return (
+    <Typography
+      color="text.secondary"
+      style={{ whiteSpace: 'nowrap' }}
+      variant="body2"
+    >
+      {formatSecs(secs)}
+    </Typography>
+  );
+}
+
+function ResetConfirmDialog({
+  confirmingReset,
+  beamers,
+  resetting,
+  onClose,
+  onConfirm,
+}: {
+  confirmingReset: LabeledBeamer | 'all' | null;
+  beamers: LabeledBeamer[];
+  resetting: boolean;
+  onClose: () => void;
+  onConfirm: (target: LabeledBeamer | 'all') => void;
+}) {
+  let eraseWarning =
+    "Every replay on this beamer's drive will be erased. This cannot be undone.";
+  if (
+    confirmingReset &&
+    confirmingReset !== 'all' &&
+    confirmingReset.replayCount != null
+  ) {
+    eraseWarning = `All ${confirmingReset.replayCount} replays on this beamer's drive will be erased. This cannot be undone.`;
+  }
+  return (
+    <Dialog
+      open={Boolean(confirmingReset)}
+      onClose={() => {
+        if (!resetting) {
+          onClose();
+        }
+      }}
+    >
+      <DialogTitle>
+        {confirmingReset === 'all'
+          ? `Erase all ${beamers.length} beamers?`
+          : `Erase ${confirmingReset ? confirmingReset.label : 'beamer'}?`}
+      </DialogTitle>
+      <DialogContent>
+        <Alert severity="warning">
+          {confirmingReset === 'all'
+            ? `Every replay on all ${beamers.length} of these drives will be erased. This cannot be undone.`
+            : eraseWarning}
+        </Alert>
+        {confirmingReset === 'all' && (
+          <DialogContentText marginTop="8px" variant="body2">
+            {beamers.map((beamer) => beamer.label).join(', ')}
+          </DialogContentText>
+        )}
+        <DialogContentText marginTop="8px" variant="body2">
+          Anything already copied to this computer is kept. If a game is being
+          played right now, let it finish first — the beamer has nowhere to put
+          a replay it is midway through writing.
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button disabled={resetting} onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          color="error"
+          disabled={resetting}
+          endIcon={
+            resetting ? <CircularProgress size="24px" /> : <DeleteForever />
+          }
+          onClick={() => {
+            if (confirmingReset) {
+              onConfirm(confirmingReset);
+            }
+          }}
+          variant="contained"
+        >
+          {confirmingReset === 'all' ? 'Erase all' : 'Erase'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 export default function BeamerDialog({
   open,
   onClose,
@@ -197,36 +307,11 @@ export default function BeamerDialog({
     LabeledBeamer | 'all' | null
   >(null);
   const [error, setError] = useState('');
-  const [now, setNow] = useState(() => Date.now());
   const [maxGamesFromIndex, setMaxGamesFromIndex] = useState(4);
-
-  const baselines = useRef(new Map<string, { secs: number; at: number }>());
-  const makeLiveSecs =
-    (counter: string) => (key: string, reported: number | undefined) => {
-      const id = `${key}#${counter}`;
-      if (reported == null) {
-        baselines.current.delete(id);
-        return undefined;
-      }
-      const previous = baselines.current.get(id);
-      if (!previous || previous.secs !== reported) {
-        baselines.current.set(id, { secs: reported, at: Date.now() });
-        return reported;
-      }
-      return previous.secs + Math.floor((now - previous.at) / 1000);
-    };
-  const portBaseline = makeLiveSecs('port');
-  const gameBaseline = makeLiveSecs('game');
 
   useEffect(() => {
     window.electron.onBeamerFleet((_event, newFleet) => {
       setFleet(newFleet);
-      const keys = new Set(newFleet.beamers.map(beamerKey));
-      Array.from(baselines.current.keys()).forEach((key) => {
-        if (!keys.has(key)) {
-          baselines.current.delete(key);
-        }
-      });
     });
   }, []);
 
@@ -242,8 +327,7 @@ export default function BeamerDialog({
       setFleet(await window.electron.getBeamerFleet());
       await window.electron.startBeamerBrowse();
     })();
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
+    return undefined;
   }, [open]);
 
   const select = async (beamerId: string) => {
@@ -327,7 +411,6 @@ export default function BeamerDialog({
     }
   };
 
-  const busy = busyWith?.kind === 'copy';
   const busyKind = (kind: BeamerBusy['kind']) => busyWith?.kind === kind;
   const busyTarget = (kind: BeamerBusy['kind'], target: string) =>
     busyWith?.kind === kind && busyWith.target === target;
@@ -338,386 +421,323 @@ export default function BeamerDialog({
     (beamer) => beamer.health === 'warn',
   );
 
-  let confirmingResetCount =
-    "Every replay on this beamer's drive will be erased. This cannot be undone.";
-  if (
-    confirmingReset &&
-    confirmingReset !== 'all' &&
-    confirmingReset.replayCount != null
-  ) {
-    confirmingResetCount = `All ${confirmingReset.replayCount} replays on this beamer's drive will be erased. This cannot be undone.`;
-  }
-
   return (
-    <Dialog
-      fullWidth
-      maxWidth="md"
-      open={open}
-      onClose={() => {
-        if (!busyWith) {
-          onClose();
-        }
-      }}
-    >
-      <DialogTitle>
-        <Stack
-          alignItems="center"
-          direction="row"
-          justifyContent="space-between"
-        >
-          <Stack alignItems="center" direction="row" gap="8px">
-            Beamers
-            <Stack alignItems="baseline" direction="row" gap="4px">
-              <TextField
-                inputProps={{
-                  min: 1,
-                  max: MAX_GAMES_FROM_INDEX,
-                  style: { textAlign: 'right' },
-                }}
-                onChange={async (event) => {
-                  const parsed = parseInt(event.target.value, 10);
-                  if (!Number.isInteger(parsed)) {
-                    return;
-                  }
-                  const clamped = Math.min(
-                    Math.max(parsed, 1),
-                    MAX_GAMES_FROM_INDEX,
-                  );
-                  setMaxGamesFromIndex(clamped);
-                  await window.electron.setMaxGamesFromIndex(clamped);
-                }}
-                size="small"
-                style={{ width: '40px' }}
-                type="number"
-                value={maxGamesFromIndex}
-                variant="standard"
-              />
-              <Typography variant="body2">games downloaded</Typography>
-            </Stack>
-            {erroringBeamers.length > 0 && (
-              <Tooltip
-                arrow
-                title={
-                  <BeamersTooltip
-                    showWarnings={false}
-                    beamers={erroringBeamers}
-                  />
-                }
-              >
-                <Chip
-                  color="error"
-                  icon={<ErrorOutline />}
-                  label={`${erroringBeamers.length} error${
-                    erroringBeamers.length === 1 ? '' : 's'
-                  }`}
-                  size="small"
-                />
-              </Tooltip>
-            )}
-            {warningBeamers.length > 0 && (
-              <Tooltip
-                arrow
-                title={<BeamersTooltip showWarnings beamers={warningBeamers} />}
-              >
-                <Chip
-                  color="warning"
-                  icon={<Warning />}
-                  label={`${warningBeamers.length} warning${
-                    warningBeamers.length === 1 ? '' : 's'
-                  }`}
-                  size="small"
-                />
-              </Tooltip>
-            )}
-          </Stack>
-          {fleet.beamers.length > 0 && (
-            <Stack alignItems="center" direction="row" gap="4px">
-              <Tooltip
-                arrow
-                title="Re-run the status check on every beamer listed here"
-              >
-                <span>
-                  <IconButton
-                    disabled={busy || busyKind('refresh') || busyKind('reset')}
-                    onClick={refreshAll}
-                    size="small"
-                  >
-                    {busyTarget('refresh', 'all') ? (
-                      <CircularProgress size="20px" />
-                    ) : (
-                      <Refresh />
-                    )}
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip
-                arrow
-                title="Erase the replays on every beamer listed here"
-              >
-                <span>
-                  <Button
-                    color="error"
-                    disabled={busy || busyKind('reset')}
-                    onClick={() => setConfirmingReset('all')}
-                    size="small"
-                    startIcon={<DeleteForever />}
-                  >
-                    Erase all
-                  </Button>
-                </span>
-              </Tooltip>
-            </Stack>
-          )}
-        </Stack>
-      </DialogTitle>
-      <DialogContent>
-        {fleet.beamers.length > 0 ? (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell />
-                <TableCell>Beamer</TableCell>
-                <TableCell>Live</TableCell>
-                <TableCell>Replays</TableCell>
-                <TableCell>P1</TableCell>
-                <TableCell>P2</TableCell>
-                <TableCell style={{ whiteSpace: 'nowrap' }}>
-                  Ports changed
-                </TableCell>
-                <TableCell style={{ whiteSpace: 'nowrap' }}>
-                  Game started
-                </TableCell>
-                <TableCell />
-                <TableCell />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {fleet.beamers.map((beamer) => {
-                const ports = [...(beamer.game?.ports ?? [])].sort(
-                  (a, b) => a.port - b.port,
-                );
-                let subscribeIcon = (
-                  <NotificationsNone color="action" fontSize="small" />
-                );
-                if (busyTarget('subscribe', beamerKey(beamer))) {
-                  subscribeIcon = <CircularProgress size="20px" />;
-                } else if (beamer.subscribed) {
-                  subscribeIcon = (
-                    <NotificationsActive color="action" fontSize="small" />
-                  );
-                }
-                const beamerTitle = `${beamer.label} · ${beamer.beamerId}`;
-                return (
-                  <TableRow
-                    hover
-                    key={beamerKey(beamer)}
-                    onClick={() => {
-                      if (!busy) {
-                        select(beamerKey(beamer));
-                      }
-                    }}
-                    style={{ cursor: busy ? 'default' : 'pointer' }}
-                  >
-                    <TableCell padding="checkbox">
-                      <span>
-                        <IconButton
-                          disabled={
-                            busy || busyTarget('subscribe', beamerKey(beamer))
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            toggleSubscribe(beamer);
-                          }}
-                          size="small"
-                        >
-                          {subscribeIcon}
-                        </IconButton>
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Stack alignItems="center" direction="row" gap="8px">
-                        <Tooltip arrow title={beamerTitle}>
-                          <Typography
-                            noWrap
-                            variant="body2"
-                            sx={{ maxWidth: 220 }}
-                          >
-                            {beamer.label}
-                          </Typography>
-                        </Tooltip>
-                        {busyTarget('copy', beamerKey(beamer)) && (
-                          <CircularProgress size="16px" />
-                        )}
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      <LiveLight beamer={beamer} />
-                    </TableCell>
-                    <TableCell>
-                      <Typography
-                        color="text.secondary"
-                        style={{ whiteSpace: 'nowrap' }}
-                        variant="body2"
-                      >
-                        {formatReplays(beamer)}
-                      </Typography>
-                    </TableCell>
-                    <PortCell game={beamer.game} port={ports[0]} />
-                    <PortCell game={beamer.game} port={ports[1]} />
-                    <TableCell>
-                      <Typography
-                        color="text.secondary"
-                        style={{ whiteSpace: 'nowrap' }}
-                        variant="body2"
-                      >
-                        {formatSecs(
-                          portBaseline(
-                            beamerKey(beamer),
-                            beamer.secsSincePortChange,
-                          ),
-                        )}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography
-                        color="text.secondary"
-                        style={{ whiteSpace: 'nowrap' }}
-                        variant="body2"
-                      >
-                        {formatSecs(
-                          gameBaseline(
-                            beamerKey(beamer),
-                            beamer.secsSinceGameStart,
-                          ),
-                        )}
-                      </Typography>
-                    </TableCell>
-                    <TableCell padding="none">
-                      <Tooltip arrow title="Re-run this beamer's status check">
-                        <span>
-                          <IconButton
-                            disabled={
-                              busy || busyKind('refresh') || busyKind('reset')
-                            }
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              refresh(beamerKey(beamer));
-                            }}
-                          >
-                            {busyTarget('refresh', beamerKey(beamer)) ? (
-                              <CircularProgress size="24px" />
-                            ) : (
-                              <Refresh />
-                            )}
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell padding="none">
-                      <Tooltip arrow title="Erase this beamer's replays">
-                        <span>
-                          <IconButton
-                            disabled={busy || busyKind('reset')}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setConfirmingReset(beamer);
-                            }}
-                          >
-                            {busyTarget('reset', beamerKey(beamer)) ? (
-                              <CircularProgress size="24px" />
-                            ) : (
-                              <DeleteForever color="error" />
-                            )}
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        ) : (
-          <Alert severity="info" style={{ marginTop: '8px' }}>
-            {fleet.browsing
-              ? 'Listening for Beamers. A beamer appears here within a second or two of joining the network.'
-              : 'Not listening yet.'}
-          </Alert>
-        )}
-        {fleet.error && (
-          <Alert severity="warning" style={{ marginTop: '8px' }}>
-            {`Could not listen for Beamers: ${fleet.error}`}
-          </Alert>
-        )}
-        {error && (
-          <Alert
-            severity="error"
-            style={{ marginTop: '8px', whiteSpace: 'pre-line' }}
-          >
-            {error}
-          </Alert>
-        )}
-      </DialogContent>
+    <>
       <Dialog
-        open={Boolean(confirmingReset)}
+        fullWidth
+        maxWidth="md"
+        open={open}
         onClose={() => {
-          if (!busyKind('reset')) {
-            setConfirmingReset(null);
+          if (!busyWith) {
+            onClose();
           }
         }}
       >
         <DialogTitle>
-          {confirmingReset === 'all'
-            ? `Erase all ${fleet.beamers.length} beamers?`
-            : `Erase ${confirmingReset ? confirmingReset.label : 'beamer'}?`}
+          <Stack
+            alignItems="center"
+            direction="row"
+            justifyContent="space-between"
+          >
+            <Stack alignItems="center" direction="row" gap="8px">
+              Beamers
+              <Stack alignItems="baseline" direction="row" gap="4px">
+                <TextField
+                  inputProps={{
+                    min: 1,
+                    max: MAX_GAMES_FROM_INDEX,
+                    style: { textAlign: 'right' },
+                  }}
+                  onChange={async (event) => {
+                    const parsed = parseInt(event.target.value, 10);
+                    if (!Number.isInteger(parsed)) {
+                      return;
+                    }
+                    const clamped = Math.min(
+                      Math.max(parsed, 1),
+                      MAX_GAMES_FROM_INDEX,
+                    );
+                    setMaxGamesFromIndex(clamped);
+                    await window.electron.setMaxGamesFromIndex(clamped);
+                  }}
+                  size="small"
+                  style={{ width: '40px' }}
+                  type="number"
+                  value={maxGamesFromIndex}
+                  variant="standard"
+                />
+                <Typography variant="body2">games downloaded</Typography>
+              </Stack>
+              {erroringBeamers.length > 0 && (
+                <Tooltip
+                  arrow
+                  title={
+                    <BeamersTooltip
+                      showWarnings={false}
+                      beamers={erroringBeamers}
+                    />
+                  }
+                >
+                  <Chip
+                    color="error"
+                    icon={<ErrorOutline />}
+                    label={`${erroringBeamers.length} error${
+                      erroringBeamers.length === 1 ? '' : 's'
+                    }`}
+                    size="small"
+                  />
+                </Tooltip>
+              )}
+              {warningBeamers.length > 0 && (
+                <Tooltip
+                  arrow
+                  title={
+                    <BeamersTooltip showWarnings beamers={warningBeamers} />
+                  }
+                >
+                  <Chip
+                    color="warning"
+                    icon={<Warning />}
+                    label={`${warningBeamers.length} warning${
+                      warningBeamers.length === 1 ? '' : 's'
+                    }`}
+                    size="small"
+                  />
+                </Tooltip>
+              )}
+            </Stack>
+            {fleet.beamers.length > 0 && (
+              <Stack alignItems="center" direction="row" gap="4px">
+                <Tooltip
+                  arrow
+                  title="Re-run the status check on every beamer listed here"
+                >
+                  <span>
+                    <IconButton
+                      disabled={
+                        busyKind('copy') ||
+                        busyKind('refresh') ||
+                        busyKind('reset')
+                      }
+                      onClick={refreshAll}
+                      size="small"
+                    >
+                      {busyTarget('refresh', 'all') ? (
+                        <CircularProgress size="20px" />
+                      ) : (
+                        <Refresh />
+                      )}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip
+                  arrow
+                  title="Erase the replays on every beamer listed here"
+                >
+                  <span>
+                    <Button
+                      color="error"
+                      disabled={busyKind('copy') || busyKind('reset')}
+                      onClick={() => setConfirmingReset('all')}
+                      size="small"
+                      startIcon={<DeleteForever />}
+                    >
+                      Erase all
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Stack>
+            )}
+          </Stack>
         </DialogTitle>
         <DialogContent>
-          <Alert severity="warning">
-            {confirmingReset === 'all'
-              ? `Every replay on all ${fleet.beamers.length} of these drives will be erased. This cannot be undone.`
-              : confirmingResetCount}
-          </Alert>
-          {confirmingReset === 'all' && (
-            <DialogContentText marginTop="8px" variant="body2">
-              {fleet.beamers.map((beamer) => beamer.label).join(', ')}
-            </DialogContentText>
+          {fleet.beamers.length > 0 ? (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell />
+                  <TableCell>Beamer</TableCell>
+                  <TableCell>Live</TableCell>
+                  <TableCell>Replays</TableCell>
+                  <TableCell>P1</TableCell>
+                  <TableCell>P2</TableCell>
+                  <TableCell style={{ whiteSpace: 'nowrap' }}>
+                    Ports changed
+                  </TableCell>
+                  <TableCell style={{ whiteSpace: 'nowrap' }}>
+                    Game started
+                  </TableCell>
+                  <TableCell />
+                  <TableCell />
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {fleet.beamers.map((beamer) => {
+                  const ports = [...(beamer.game?.ports ?? [])].sort(
+                    (a, b) => a.port - b.port,
+                  );
+                  let subscribeIcon = (
+                    <NotificationsNone color="action" fontSize="small" />
+                  );
+                  if (busyTarget('subscribe', beamerKey(beamer))) {
+                    subscribeIcon = <CircularProgress size="20px" />;
+                  } else if (beamer.subscribed) {
+                    subscribeIcon = (
+                      <NotificationsActive color="action" fontSize="small" />
+                    );
+                  }
+                  const beamerTitle = `${beamer.label} · ${beamer.beamerId}`;
+                  return (
+                    <TableRow
+                      hover
+                      key={beamerKey(beamer)}
+                      onClick={() => {
+                        if (!busyKind('copy')) {
+                          select(beamerKey(beamer));
+                        }
+                      }}
+                      style={{
+                        cursor: busyKind('copy') ? 'default' : 'pointer',
+                      }}
+                    >
+                      <TableCell padding="checkbox">
+                        <span>
+                          <IconButton
+                            disabled={
+                              busyKind('copy') ||
+                              busyTarget('subscribe', beamerKey(beamer))
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleSubscribe(beamer);
+                            }}
+                            size="small"
+                          >
+                            {subscribeIcon}
+                          </IconButton>
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Stack alignItems="center" direction="row" gap="8px">
+                          <Tooltip arrow title={beamerTitle}>
+                            <Typography
+                              noWrap
+                              variant="body2"
+                              sx={{ maxWidth: 220 }}
+                            >
+                              {beamer.label}
+                            </Typography>
+                          </Tooltip>
+                          {busyTarget('copy', beamerKey(beamer)) && (
+                            <CircularProgress size="16px" />
+                          )}
+                        </Stack>
+                      </TableCell>
+                      <TableCell>
+                        <LiveLight beamer={beamer} />
+                      </TableCell>
+                      <TableCell>
+                        <Typography
+                          color="text.secondary"
+                          style={{ whiteSpace: 'nowrap' }}
+                          variant="body2"
+                        >
+                          {formatReplays(beamer)}
+                        </Typography>
+                      </TableCell>
+                      <PortCell game={beamer.game} port={ports[0]} />
+                      <PortCell game={beamer.game} port={ports[1]} />
+                      <TableCell>
+                        <LiveSecsText reported={beamer.secsSincePortChange} />
+                      </TableCell>
+                      <TableCell>
+                        <LiveSecsText reported={beamer.secsSinceGameStart} />
+                      </TableCell>
+                      <TableCell padding="none">
+                        <Tooltip
+                          arrow
+                          title="Re-run this beamer's status check"
+                        >
+                          <span>
+                            <IconButton
+                              disabled={
+                                busyKind('copy') ||
+                                busyKind('refresh') ||
+                                busyKind('reset')
+                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                refresh(beamerKey(beamer));
+                              }}
+                            >
+                              {busyTarget('refresh', beamerKey(beamer)) ? (
+                                <CircularProgress size="24px" />
+                              ) : (
+                                <Refresh />
+                              )}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell padding="none">
+                        <Tooltip arrow title="Erase this beamer's replays">
+                          <span>
+                            <IconButton
+                              disabled={busyKind('copy') || busyKind('reset')}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setConfirmingReset(beamer);
+                              }}
+                            >
+                              {busyTarget('reset', beamerKey(beamer)) ? (
+                                <CircularProgress size="24px" />
+                              ) : (
+                                <DeleteForever color="error" />
+                              )}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          ) : (
+            <Alert severity="info" style={{ marginTop: '8px' }}>
+              {fleet.browsing
+                ? 'Listening for Beamers. A beamer appears here within a second or two of joining the network.'
+                : 'Not listening yet.'}
+            </Alert>
           )}
-          <DialogContentText marginTop="8px" variant="body2">
-            Anything already copied to this computer is kept. If a game is being
-            played right now, let it finish first — the beamer has nowhere to
-            put a replay it is midway through writing.
-          </DialogContentText>
+          {fleet.error && (
+            <Alert severity="warning" style={{ marginTop: '8px' }}>
+              {`Could not listen for Beamers: ${fleet.error}`}
+            </Alert>
+          )}
+          {error && (
+            <Alert
+              severity="error"
+              style={{ marginTop: '8px', whiteSpace: 'pre-line' }}
+            >
+              {error}
+            </Alert>
+          )}
         </DialogContent>
-        <DialogActions>
-          <Button
-            disabled={busyKind('reset')}
-            onClick={() => setConfirmingReset(null)}
-          >
-            Cancel
-          </Button>
-          <Button
-            color="error"
-            disabled={busyKind('reset')}
-            endIcon={
-              busyKind('reset') ? (
-                <CircularProgress size="24px" />
-              ) : (
-                <DeleteForever />
-              )
-            }
-            onClick={() => {
-              if (confirmingReset === 'all') {
-                resetAll();
-              } else if (confirmingReset) {
-                reset(confirmingReset);
-              }
-            }}
-            variant="contained"
-          >
-            {confirmingReset === 'all' ? 'Erase all' : 'Erase'}
-          </Button>
-        </DialogActions>
       </Dialog>
-    </Dialog>
+      <ResetConfirmDialog
+        beamers={fleet.beamers}
+        confirmingReset={confirmingReset}
+        onClose={() => setConfirmingReset(null)}
+        onConfirm={(target) => {
+          if (target === 'all') {
+            resetAll();
+          } else {
+            reset(target);
+          }
+        }}
+        resetting={busyKind('reset')}
+      />
+    </>
   );
 }
