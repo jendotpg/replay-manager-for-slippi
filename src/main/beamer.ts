@@ -19,6 +19,7 @@ import {
   BeamerPort,
   BeamerStatusBody,
   DownloadStatus,
+  DownloadFailure,
 } from '../common/types';
 import { assertInteger } from '../common/asserts';
 import { hasCompleteFile } from './download';
@@ -1043,9 +1044,7 @@ export async function selectBeamer(beamerId: string, maxGames: number) {
     (e) => {
       sendBeamerDownloadStatus({
         status: 'error',
-        failedFiles: [
-          `The pull failed: ${e instanceof Error ? e.message : String(e)}`,
-        ],
+        failedFiles: [{ reason: e instanceof Error ? e.message : String(e) }],
       });
     },
   );
@@ -1168,7 +1167,7 @@ export async function refreshBeamerStatus(beamerId: string) {
 
 const runOverFleet = async (
   action: (beamer: Beamer) => Promise<void>,
-): Promise<string[]> => {
+): Promise<DownloadFailure[]> => {
   const targets = listedBeamers();
   if (targets.length === 0) {
     throw new Error('No beamers are advertising themselves.');
@@ -1176,15 +1175,17 @@ const runOverFleet = async (
 
   const results = await Promise.allSettled(targets.map(action));
 
-  const failures: string[] = [];
+  const failures: DownloadFailure[] = [];
   results.forEach((result, i) => {
     if (result.status === 'rejected') {
       const beamer = targets[i];
-      const reason =
-        result.reason instanceof Error
-          ? result.reason.message
-          : String(result.reason);
-      failures.push(`${beamer.label}: ${reason}`);
+      failures.push({
+        label: beamer.label,
+        reason:
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+      });
     }
   });
 

@@ -156,10 +156,7 @@ const finishWave = () => {
   } else if (wave.failures.size > 0) {
     sendStatusTo({
       status: 'error',
-      failedFiles: Array.from(
-        wave.failures.values(),
-        (failure) => `${failure.label} — ${failure.reason}`,
-      ),
+      failedFiles: Array.from(wave.failures.values()),
     });
   } else if (wave.totalFiles > 0) {
     sendStatusTo({ status: 'success' });

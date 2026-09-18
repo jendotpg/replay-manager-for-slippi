@@ -401,7 +401,11 @@ export default function BeamerDialog({
     try {
       const failures = await window.electron.resetAllBeamers();
       if (failures.length > 0) {
-        setError(`Erased the rest, but not these:\n${failures.join('\n')}`);
+        setError(
+          `Erased the rest, but not these:\n${failures
+            .map((failure) => `${failure.label}: ${failure.reason}`)
+            .join('\n')}`,
+        );
       }
     } catch (e: any) {
       setError(e instanceof Error ? e.message : e);

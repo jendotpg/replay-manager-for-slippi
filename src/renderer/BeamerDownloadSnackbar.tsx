@@ -100,8 +100,12 @@ export default function BeamerDownloadSnackbar({
           Failed to download the following SLP files:
         </Typography>
         {status.failedFiles.map((file) => (
-          <Typography key={file} variant="body2" color="text.secondary">
-            {file}
+          <Typography
+            key={`${file.label ?? ''}|${file.reason ?? ''}`}
+            variant="body2"
+            color="text.secondary"
+          >
+            {[file.label, file.reason].filter(Boolean).join(' - ')}
           </Typography>
         ))}
         <Stack direction="row" justifyContent="flex-end">

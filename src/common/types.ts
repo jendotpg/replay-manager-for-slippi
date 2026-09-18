@@ -436,6 +436,11 @@ export enum WebSocketServerStatus {
   STARTED,
 }
 
+export type DownloadFailure = {
+  label?: string;
+  reason?: string;
+};
+
 export type DownloadStatus =
   | { status: 'idle' }
   | {
@@ -447,7 +452,7 @@ export type DownloadStatus =
       totalFiles: number;
       attempt?: number;
     }
-  | { status: 'error'; failedFiles: string[] }
+  | { status: 'error'; failedFiles: DownloadFailure[] }
   | { status: 'cancelled'; filesDone: number; totalFiles: number }
   | { status: 'success' };
 

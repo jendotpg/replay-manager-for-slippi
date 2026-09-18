@@ -15,6 +15,7 @@ import {
   ReportSettings,
   Set,
   DownloadStatus,
+  DownloadFailure,
   StartggSet,
   Tournament,
   WebSocketServerStatus,
@@ -89,7 +90,7 @@ const electronHandler = {
     ipcRenderer.invoke('resetBeamer', beamerId),
   refreshAllBeamers: (): Promise<void> =>
     ipcRenderer.invoke('refreshAllBeamers'),
-  resetAllBeamers: (): Promise<string[]> =>
+  resetAllBeamers: (): Promise<DownloadFailure[]> =>
     ipcRenderer.invoke('resetAllBeamers'),
   deleteReplaysDir: (usedFilenames: string[]): Promise<boolean> =>
     ipcRenderer.invoke('deleteReplaysDir', usedFilenames),

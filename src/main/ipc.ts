@@ -43,6 +43,7 @@ import {
   SelectedSetChain,
   Set as MatchSet,
   DownloadStatus,
+  DownloadFailure,
   StartggGame,
   StartggSet,
 } from '../common/types';
@@ -249,7 +250,7 @@ export default function setupIPCs(
 
   async function handleProtocolLoadSLPs(slpUrls: string[]) {
     await mkdir(protocolLoadFullPath, { recursive: true });
-    const failedFiles: string[] = [];
+    const failedFiles: DownloadFailure[] = [];
     const total = slpUrls.length;
     let completed = 0;
 
@@ -274,7 +275,7 @@ export default function setupIPCs(
         try {
           await downloadFile(url, dest);
         } catch (err) {
-          failedFiles.push(url);
+          failedFiles.push({ label: url });
         } finally {
           completed += 1;
           send(fileName);
