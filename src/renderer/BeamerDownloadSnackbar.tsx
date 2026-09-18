@@ -1,20 +1,51 @@
+import { useEffect, useState } from 'react';
 import {
   Button,
+  Chip,
+  IconButton,
   Stack,
+  Tooltip,
   Typography,
   LinearProgress,
   Box,
   Snackbar,
   Paper,
 } from '@mui/material';
+import { Close, Download, Remove } from '@mui/icons-material';
 
 import { DownloadStatus } from '../common/types';
 
 const MAX_VISIBLE_SOURCES = 3;
 
+function CloseIconButton({
+  title,
+  onClick,
+}: {
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip arrow title={title}>
+      <IconButton size="small" onClick={onClick}>
+        <Close />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function MinimizeIconButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip arrow title="Minimize (download continues)">
+      <IconButton size="small" onClick={onClick}>
+        <Remove />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
 function LinearProgressWithLabel({ value }: { value: number }) {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', width: 300 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
       <Box sx={{ width: '100%', mr: 1 }}>
         <LinearProgress variant="determinate" value={value} />
       </Box>
@@ -36,10 +67,39 @@ export default function BeamerDownloadSnackbar({
   onClose: () => void;
   onCancel: () => void;
 }) {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    if (status.status === 'error') {
+      setHidden(false);
+    }
+  }, [status]);
+
+  if (hidden && status.status === 'downloading') {
+    return (
+      <Tooltip arrow title="Show downloads">
+        <Chip
+          color="primary"
+          icon={<Download />}
+          label={`${Math.round(status.progress)}%`}
+          onClick={() => setHidden(false)}
+          sx={{
+            position: 'fixed',
+            left: 56,
+            bottom: 8,
+            height: 40,
+            borderRadius: 20,
+            zIndex: (t) => t.zIndex.snackbar,
+          }}
+        />
+      </Tooltip>
+    );
+  }
+
   const open =
-    status.status === 'downloading' ||
-    status.status === 'cancelled' ||
-    status.status === 'error';
+    !hidden &&
+    (status.status === 'downloading' ||
+      status.status === 'cancelled' ||
+      status.status === 'error');
 
   let content = null;
   if (status.status === 'downloading') {
@@ -53,7 +113,14 @@ export default function BeamerDownloadSnackbar({
         : ` (${Math.min(filesDone + 1, totalFiles)} of ${totalFiles})`;
     content = (
       <Stack gap={1}>
-        <Typography variant="subtitle2">Downloading SLP files...</Typography>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+        >
+          <Typography variant="subtitle2">Downloading SLP files...</Typography>
+          <MinimizeIconButton onClick={() => setHidden(true)} />
+        </Stack>
         <LinearProgressWithLabel value={status.progress} />
         <Typography variant="body2" color="text.secondary">
           {visible || status.currentFile}
@@ -79,23 +146,34 @@ export default function BeamerDownloadSnackbar({
   } else if (status.status === 'cancelled') {
     content = (
       <Stack gap={1}>
-        <Typography variant="subtitle2">Download Cancelled</Typography>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+        >
+          <Typography variant="subtitle2">Download Cancelled</Typography>
+          <CloseIconButton title="Close" onClick={onClose} />
+        </Stack>
         <Typography variant="body2" color="text.secondary">
           {`Stopped after ${status.filesDone} of ${status.totalFiles} files. ` +
             'Partly downloaded files are kept, so refreshing picks up where ' +
             'this left off.'}
         </Typography>
-        <Stack direction="row" justifyContent="flex-end">
-          <Button size="small" onClick={onClose}>
-            Close
-          </Button>
-        </Stack>
       </Stack>
     );
   } else if (status.status === 'error') {
     content = (
       <Stack gap={1}>
-        <Typography variant="subtitle2">Error Downloading SLP Files</Typography>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+        >
+          <Typography variant="subtitle2">
+            Error Downloading SLP Files
+          </Typography>
+          <CloseIconButton title="Close" onClick={onClose} />
+        </Stack>
         <Typography variant="body2" color="text.secondary">
           Failed to download the following SLP files:
         </Typography>
@@ -108,11 +186,6 @@ export default function BeamerDownloadSnackbar({
             {[file.label, file.reason].filter(Boolean).join(' - ')}
           </Typography>
         ))}
-        <Stack direction="row" justifyContent="flex-end">
-          <Button size="small" onClick={onClose}>
-            Close
-          </Button>
-        </Stack>
       </Stack>
     );
   }
@@ -134,7 +207,7 @@ export default function BeamerDownloadSnackbar({
         maxWidth: 'calc(100vw - 340px)',
       }}
     >
-      <Paper elevation={6} sx={{ p: 2, width: 440, maxWidth: '100%' }}>
+      <Paper elevation={6} sx={{ p: 1.5, width: 360, maxWidth: '100%' }}>
         {content}
       </Paper>
     </Snackbar>
