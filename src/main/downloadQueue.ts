@@ -56,6 +56,9 @@ export const beamerDirWritten = new EventEmitter<{
   dirWritten: [dest: string];
 }>();
 
+// A wave is one unit of user-visible progress: every download enqueued while its
+// running counts toward it. The wave ends whenever the queue goes idle, reporting
+// success, failure, or cancellation. The next download to arrive starts a new wave.
 function freshWave(): BeamerWave {
   return {
     totalFiles: 0,
@@ -175,7 +178,10 @@ const leaveBatch = (batch: Batch) => {
   batch.resolve();
 };
 
-type JobOutcome = { kind: 'done' } | { kind: 'failed'; failure: DownloadError };
+type JobOutcome =
+  | { kind: 'done' }
+  | { kind: 'cancelled' }
+  | { kind: 'failed'; failure: DownloadError };
 
 const settle = (job: Job, outcome: JobOutcome) => {
   // invariant: settled is terminal - a job settles at most once, a batch resolves at most once
@@ -197,28 +203,21 @@ const settle = (job: Job, outcome: JobOutcome) => {
   if (outcome.kind === 'done') {
     wave.failures.delete(job.request.beamerId);
     beamerDirWritten.emit('dirWritten', job.request.dest);
-  } else {
+  } else if (outcome.kind === 'failed') {
     wave.failures.set(job.request.beamerId, {
       label: job.request.beamerName,
       reason: outcome.failure.message,
     });
     if (outcome.failure.unreachable) {
       // the beamer is down - fail the rest of its batch right away
-      for (let i = jobs.length - 1; i >= 0; i -= 1) {
-        const sibling = jobs[i];
-        if (sibling.batch === job.batch) {
-          // invariant: settled is terminal - a job settles at most once, a batch resolves at most once
-          sibling.settled = true;
-          jobs.splice(i, 1);
-          wave.doneFiles += 1;
-          wave.doneBytes += Math.max(sibling.request.size ?? 0, 0);
-          wave.failures.set(sibling.request.beamerId, {
-            label: sibling.request.beamerName,
-            reason: outcome.failure.message,
-          });
-          leaveBatch(sibling.batch);
-        }
-      }
+      const siblings = jobs.filter((sibling) => sibling.batch === job.batch);
+      const siblingFailure: JobOutcome = {
+        kind: 'failed',
+        failure: outcome.failure,
+      };
+      siblings.forEach((sibling) => {
+        settle(sibling, siblingFailure);
+      });
     }
   }
   leaveBatch(job.batch);
@@ -303,6 +302,7 @@ const runJob = (job: Job) => {
     })
     .then(() => settle(job, { kind: 'done' }))
     .catch((error) => {
+      // settle released the slot if cancelBeamerDownload settled this job already
       if (running?.job !== job) {
         return;
       }
@@ -342,28 +342,21 @@ const preemptRunning = () => {
 };
 
 export function cancelBeamerDownload() {
-  const dropped = jobs.splice(0);
-  dropped.forEach((job) => {
-    // invariant: settled is terminal - a job settles at most once, a batch resolves at most once
-    // invariant: each file's wave accounting moves exactly once, and only in settle
-    job.settled = true;
-  });
   clearWake();
-  if (running) {
-    running.job.aborted = 'cancel';
-    running.controller.abort();
-    running = null;
+  const current = running;
+  if (current) {
+    current.job.aborted = 'cancel';
+    current.controller.abort();
   }
-  batches.forEach((batch) => {
-    // invariant: settled is terminal - a job settles at most once, a batch resolves at most once
-    if (!batch.settled) {
-      batch.settled = true;
-      batches.delete(batch);
-      batch.resolve();
-    }
-  });
-  if (dropped.length > 0 || running) {
+  const dropped = jobs.splice(0);
+  if (current || dropped.length > 0) {
     wave.cancelled = true;
+  }
+  dropped.forEach((job) => {
+    settle(job, { kind: 'cancelled' });
+  });
+  if (current) {
+    settle(current.job, { kind: 'cancelled' });
   }
   sendStatus(true);
   finishWave();
@@ -408,6 +401,9 @@ export const enqueueBeamerPull = async (
   beamerId: string,
   beamerName: string,
 ): Promise<void> => {
+  // we assume a filename served by a given beamer always denotes the same file, so a
+  // completed download can stand in for any other pull of that name from that beamer
+  // and a double-enqueue of the same one is harmless
   const present = await Promise.all(
     files.map((file) => hasCompleteFile(dest, file)),
   );
