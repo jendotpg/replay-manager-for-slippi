@@ -5,10 +5,6 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 TODO:
 
 - CODE QUALITY: clean this whole thing up :3
-- BUGFIX: you need to be able to drop a name over a snackbar !!!
-
-  - is there a better place on the screen for the snackbar? top right, maybe?
-
 - actually use this in tournament a few times:
 
   - ~~NYSE redemption (1 router)~~ ✅
@@ -140,7 +136,7 @@ There's no authentication at all - if you can reach the beamer, you can do anyth
 
 No new dependencies.
 
-Background network traffic only exists if any beamers are subscribed to. Subscribing to a station (in bulk via settings or individually in the fleet view) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive. A TO with no Beamer on the network (or only unsubscribed Beamers and auto-subscribe off) sees no background work.
+New background traffic is only added if there are Beamers on the network with one exception: when auto-subscribe is on, the mDNS listener itself listens for new Beamers from startup. Subscribing to a station (in bulk via settings or individually in the fleet view) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive. A TO with no Beamer on the network (or only unsubscribed Beamers and auto-subscribe off) sees no background work.
 
 Four things change for a user who never touches a Beamer:
 

@@ -599,7 +599,6 @@ export type BeamerPort = {
   charId: number | null;
   costume: number;
   char: string;
-  color: string;
   nametag: string;
 };
 
@@ -623,15 +622,11 @@ export type Beamer = {
   host: string;
   beamerId: string;
   beamerName: string;
-  ssid: string;
-  arch: string;
-  ssh: boolean;
   replayCount?: number;
   replayCap?: number;
   health: BeamerHealth;
   warnings: string[];
   secsSincePortChange?: number;
-  secsSinceCharacterChange?: number;
   secsSinceGameStart?: number;
   reported: boolean;
   pingFails: number;
@@ -665,24 +660,18 @@ export type BeamerEvent = {
   event: BeamerEventKind;
   beamerId: string;
   beamerName: string;
-  seq: number;
   replay: { name: string; size?: number; url: string };
-  game: BeamerGame | null;
 };
 
 export type BeamerStatusBody = {
   schema: number;
   station_id: string;
   station_name?: string;
-  ssid?: string;
-  arch?: string;
-  ssh?: boolean;
   replay_count?: number;
   replay_cap?: number;
   health?: string;
   warnings?: unknown;
   secs_since_port_change?: number;
-  secs_since_character_change?: number;
   secs_since_game_start?: number;
   game?: unknown;
 };

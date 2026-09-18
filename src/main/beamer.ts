@@ -74,7 +74,6 @@ function asPort(value: unknown): BeamerPort | null {
         : null,
     costume: Number.isInteger(record.costume) ? (record.costume as number) : 0,
     char: asString(record.char),
-    color: asString(record.color),
     nametag: asString(record.nametag),
   };
 }
@@ -121,15 +120,11 @@ function beamerFromStatus(
     ...base,
     beamerId: asString(status.station_id),
     beamerName: asString(status.station_name),
-    ssid: asString(status.ssid),
-    arch: asString(status.arch),
-    ssh: status.ssh === true,
     replayCount: asCount(status.replay_count),
     replayCap: asCount(status.replay_cap),
     health: asHealth(status.health),
     warnings: asWarnings(status.warnings),
     secsSincePortChange: asCount(status.secs_since_port_change),
-    secsSinceCharacterChange: asCount(status.secs_since_character_change),
     secsSinceGameStart: asCount(status.secs_since_game_start),
     reported: true,
     pingFails: 0,
@@ -143,9 +138,6 @@ function unreportedBeamer(base: Pick<Beamer, 'address' | 'host'>): Beamer {
     ...base,
     beamerId: '',
     beamerName: '',
-    ssid: '',
-    arch: '',
-    ssh: false,
     health: 'unknown',
     warnings: [],
     reported: false,
@@ -356,11 +348,7 @@ function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
   if (!BEAMER_EVENT_KINDS.includes(body.event as BeamerEventKind)) {
     return null;
   }
-  if (
-    typeof body.station_id !== 'string' ||
-    !body.station_id ||
-    !Number.isInteger(body.seq)
-  ) {
+  if (typeof body.station_id !== 'string' || !body.station_id) {
     return null;
   }
   const replay = asRecord(body.replay);
@@ -373,18 +361,15 @@ function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
   ) {
     return null;
   }
-  const game = asGame(body.game);
   return {
     event: body.event as BeamerEventKind,
     beamerId: body.station_id,
     beamerName: asString(body.station_name),
-    seq: body.seq as number,
     replay: {
       name: replay.name,
       size: asCount(replay.size),
       url: replay.url,
     },
-    game,
   };
 }
 
