@@ -355,7 +355,7 @@ export default function BeamerDialog({
     }
   };
 
-  const toggleSubscribe = async (beamer: Beamer) => {
+  const toggleSubscribe = async (beamer: LabeledBeamer) => {
     setBusyWith({ kind: 'subscribe', target: beamerKey(beamer) });
     setError('');
     try {

@@ -129,7 +129,6 @@ function beamerFromStatus(
     reported: true,
     pingFails: 0,
     game: asGame(status.game),
-    subscribed: false,
   };
 }
 
@@ -143,7 +142,6 @@ function unreportedBeamer(base: Pick<Beamer, 'address' | 'host'>): Beamer {
     reported: false,
     pingFails: 0,
     game: null,
-    subscribed: false,
   };
 }
 

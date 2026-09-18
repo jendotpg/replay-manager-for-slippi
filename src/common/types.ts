@@ -631,10 +631,9 @@ export type Beamer = {
   reported: boolean;
   pingFails: number;
   game: BeamerGame | null;
-  subscribed: boolean;
 };
 
-export type LabeledBeamer = Beamer & { label: string };
+export type LabeledBeamer = Beamer & { label: string; subscribed: boolean };
 
 export type BeamerFleet = {
   beamers: LabeledBeamer[];
@@ -646,13 +645,13 @@ export const BEAMER_EVENT_KINDS = ['game_started', 'game_finished'] as const;
 
 export type BeamerEventKind = (typeof BEAMER_EVENT_KINDS)[number];
 
-export type ReplayDir = {
-  dir: string;
-  dirType: DirType;
-  display: string;
-  usbKey: string;
-  beamerId: string;
-};
+type ReplayDirBase = { dir: string; display: string };
+
+export type ReplayDir =
+  | (ReplayDirBase & { dirType: 'local' })
+  | (ReplayDirBase & { dirType: 'deeplink' })
+  | (ReplayDirBase & { dirType: 'usb'; usbKey: string })
+  | (ReplayDirBase & { dirType: 'beamer'; beamerId: string });
 
 export type BeamerFile = { name: string; size?: number; url: string };
 

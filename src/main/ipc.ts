@@ -312,8 +312,6 @@ export default function setupIPCs(
         dir: protocolLoadFullPath,
         dirType: 'deeplink',
         display,
-        usbKey: '',
-        beamerId: '',
       });
     }
   }
@@ -338,7 +336,6 @@ export default function setupIPCs(
         dirType: 'usb',
         display: dir,
         usbKey: e.key,
-        beamerId: '',
       });
     }
   };
@@ -417,8 +414,6 @@ export default function setupIPCs(
       dir: chosenReplaysDir,
       dirType: 'local',
       display: chosenReplaysDir,
-      usbKey: '',
-      beamerId: '',
     });
     return chosenReplaysDir;
   });
@@ -456,7 +451,6 @@ export default function setupIPCs(
       dir: dest,
       dirType: 'beamer',
       display,
-      usbKey: '',
       beamerId: indexBeamerId,
     });
     return dest;
@@ -567,15 +561,15 @@ export default function setupIPCs(
   );
 
   const maybeEject = (currentDir: ReplayDir) => {
-    if (currentDir.usbKey) {
-      return new Promise<boolean>((resolve) => {
-        eject(currentDir.usbKey, () => {
-          // best effort
-          resolve(true);
-        });
-      });
+    if (currentDir.dirType !== 'usb') {
+      return Promise.resolve(false);
     }
-    return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      eject(currentDir.usbKey, () => {
+        // best effort
+        resolve(true);
+      });
+    });
   };
 
   let trashDir = store.get('trashDir', '') as string;
