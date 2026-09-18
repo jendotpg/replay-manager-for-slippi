@@ -226,6 +226,7 @@ export default function SetControls({
   enforcerVersion,
   enforcerSetting,
   smuggleCostumeIndex,
+  deleteBlocked,
   deleteBlockedReason,
   replayLoadCount,
   undoSubdir,
@@ -273,6 +274,7 @@ export default function SetControls({
   enforcerVersion: string;
   enforcerSetting: EnforcerSetting;
   smuggleCostumeIndex: boolean;
+  deleteBlocked: boolean;
   deleteBlockedReason: string;
   replayLoadCount: number;
   undoSubdir: string;
@@ -536,7 +538,7 @@ export default function SetControls({
   let deleteOverrideReason = '';
   if (set.fullRoundText === 'Grand Final' && hasRemainingReplays) {
     deleteOverrideReason = 'possible Grand Finals Reset replays detected';
-  } else if (deleteBlockedReason) {
+  } else if (deleteBlocked) {
     deleteOverrideReason = deleteBlockedReason;
   }
 

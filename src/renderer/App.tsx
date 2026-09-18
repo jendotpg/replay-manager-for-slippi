@@ -197,6 +197,13 @@ const EMPTY_SELECTED_SET_CHAIN: SelectedSetChain = {
   phaseGroup: undefined,
 };
 
+type DirState = {
+  dir: string;
+  dirLabel: string;
+  dirType: DirType;
+  selectedBeamer: string;
+};
+
 function hasTimeSkew(replays: Replay[]) {
   if (replays.length < 2) {
     return false;
@@ -298,12 +305,15 @@ function Hello() {
     useState(true);
 
   // initial state
-  const [dir, setDir] = useState('');
-  const [dirLabel, setDirLabel] = useState('');
+  const [dirState, setDirState] = useState<DirState>({
+    dir: '',
+    dirLabel: '',
+    dirType: 'local',
+    selectedBeamer: '',
+  });
+  const { dir, dirLabel, dirType, selectedBeamer } = dirState;
   const [refreshingBeamer, setRefreshingBeamer] = useState(false);
   const [dirInit, setDirInit] = useState(false);
-  const [dirType, setDirType] = useState<DirType>('local');
-  const [selectedBeamer, setSelectedBeamer] = useState('');
   const [beamerPreviousReplay, setBeamerPreviousReplay] = useState('');
   const [downloadingPreviousReplay, setDownloadingPreviousReplay] =
     useState(false);
@@ -441,8 +451,11 @@ function Hello() {
 
       // initial state
       const replaysDir = await replaysDirPromise;
-      setDir(replaysDir);
-      setDirLabel(replaysDir);
+      setDirState((prevDirState) => ({
+        ...prevDirState,
+        dir: replaysDir,
+        dirLabel: replaysDir,
+      }));
       setDirInit(replaysDir.length > 0);
       setCopyDir(await copyDirPromise);
       setHost(await hostPromise);
@@ -756,10 +769,12 @@ function Hello() {
       setBatchActives(
         getNewBatchActives(newReplays.filter((replay) => replay.selected)),
       );
-      setDir(newDir);
-      setDirLabel(newDir);
-      setDirType('local');
-      setSelectedBeamer('');
+      setDirState({
+        dir: newDir,
+        dirLabel: newDir,
+        dirType: 'local',
+        selectedBeamer: '',
+      });
       setDirExists(true);
       setDirInit(false);
       resetOverrides();
@@ -896,7 +911,8 @@ function Hello() {
     dir.length > 0 && copyDir.length > 0 && dir === copyDir;
   const isUsb = dirType === 'usb';
   const isBeamer = dirType === 'beamer';
-  let deleteBlockedReason = '';
+  const deleteBlocked = isBeamer || wouldDeleteCopyDir;
+  let deleteBlockedReason = 'Delete selected replays';
   if (isBeamer) {
     deleteBlockedReason = 'Replays came from a Beamer';
   } else if (wouldDeleteCopyDir) {
@@ -911,7 +927,7 @@ function Hello() {
   const [ejecting, setEjecting] = useState(false);
   const [ejected, setEjected] = useState(false);
   const deleteDir = async (usedFilenames: string[]) => {
-    if (!dirLabel || wouldDeleteCopyDir || isBeamer) {
+    if (!dirLabel || deleteBlocked) {
       return;
     }
 
@@ -927,7 +943,7 @@ function Hello() {
     }
   };
   const deleteSelected = async (used: boolean) => {
-    if (!dirLabel || wouldDeleteCopyDir || isBeamer) {
+    if (!dirLabel || deleteBlocked) {
       return;
     }
 
@@ -950,8 +966,11 @@ function Hello() {
     setDirDeleting(true);
     try {
       const restoredDir = await window.electron.deleteUndoSrcDst();
-      setDir(restoredDir);
-      setDirLabel(restoredDir);
+      setDirState((prevDirState) => ({
+        ...prevDirState,
+        dir: restoredDir,
+        dirLabel: restoredDir,
+      }));
       setUndoSubdir('');
       refreshReplays(true);
     } finally {
@@ -1055,10 +1074,12 @@ function Hello() {
     window.electron.onReplayDir(
       (e, newDisplay, newDirType, newBeamerId, newDir) => {
         if (!undoSubdir) {
-          setDir(newDir);
-          setDirLabel(newDisplay);
-          setDirType(newDirType);
-          setSelectedBeamer(newDirType === 'beamer' ? newBeamerId : '');
+          setDirState({
+            dir: newDir,
+            dirLabel: newDisplay,
+            dirType: newDirType,
+            selectedBeamer: newDirType === 'beamer' ? newBeamerId : '',
+          });
           setWasDeleted(false);
           refreshReplays(true);
           setEjected(false);
@@ -2163,8 +2184,11 @@ function Hello() {
                       onClick={async () => {
                         const restoredDir =
                           await window.electron.setUndoSubdir('');
-                        setDir(restoredDir);
-                        setDirLabel(restoredDir);
+                        setDirState((prevDirState) => ({
+                          ...prevDirState,
+                          dir: restoredDir,
+                          dirLabel: restoredDir,
+                        }));
                         setUndoSubdir('');
                         refreshReplays(true);
                       }}
@@ -2271,15 +2295,12 @@ function Hello() {
                         </Dialog>
                       </>
                     ) : (
-                      <Tooltip
-                        arrow
-                        title={deleteBlockedReason || 'Delete selected replays'}
-                      >
+                      <Tooltip arrow title={deleteBlockedReason}>
                         <div>
                           <IconButton
                             disabled={
                               selectedReplays.length === 0 ||
-                              deleteBlockedReason.length > 0 ||
+                              deleteBlocked ||
                               dirDeleting
                             }
                             onClick={() => deleteSelected(false)}
@@ -3373,6 +3394,7 @@ function Hello() {
                 enforcerVersion={ENFORCER_VERSION}
                 enforcerSetting={enforcerSetting}
                 smuggleCostumeIndex={smuggleCostumeIndex}
+                deleteBlocked={deleteBlocked}
                 deleteBlockedReason={deleteBlockedReason}
                 replayLoadCount={replayLoadCount}
                 undoSubdir={undoSubdir}
@@ -3401,12 +3423,14 @@ function Hello() {
                       try {
                         const restoredDir =
                           await window.electron.setUndoSubdir(reportedSubdir);
-                        setDir(restoredDir);
-                        setDirLabel(restoredDir);
+                        setDirState({
+                          dir: restoredDir,
+                          dirLabel: restoredDir,
+                          dirType: 'local',
+                          selectedBeamer: '',
+                        });
                         setUndoSubdir(reportedSubdir);
                         setUndoDialogOpen(false);
-                        setDirType('local');
-                        setSelectedBeamer('');
                         setWasDeleted(false);
                         refreshReplays(true);
                         setEjected(false);
