@@ -95,6 +95,7 @@ import {
   Tournament,
 } from '../common/types';
 import { DraggableChip, DroppableChip } from './DragAndDrop';
+import BeamerPreviousReplayRow from './BeamerPreviousReplayRow';
 import ReplayList, { SkewReplay } from './ReplayList';
 import CopyControls from './CopyControls';
 import SetControls from './SetControls';
@@ -2581,13 +2582,17 @@ function Hello() {
               <>
                 <ReplayList
                   dirInit={dirInit}
-                  previousReplayName={beamerPreviousReplay}
-                  downloadingPreviousReplay={
-                    downloadingPreviousReplay ||
-                    (beamerDownloadStatus.status === 'downloading' &&
-                      beamerDownloadStatus.sources.includes(dirLabel))
+                  header={
+                    <BeamerPreviousReplayRow
+                      previousReplayName={beamerPreviousReplay}
+                      downloading={
+                        downloadingPreviousReplay ||
+                        (beamerDownloadStatus.status === 'downloading' &&
+                          beamerDownloadStatus.sources.includes(dirLabel))
+                      }
+                      onDownload={downloadPreviousReplay}
+                    />
                   }
-                  onDownloadPrevious={downloadPreviousReplay}
                   numAvailablePlayers={availablePlayers.length}
                   replays={replays}
                   replayRefs={replayRefs}
