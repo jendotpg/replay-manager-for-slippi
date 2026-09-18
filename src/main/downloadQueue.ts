@@ -53,8 +53,8 @@ type BeamerWave = {
   cancelled: boolean;
 };
 
-export const beamerFileComplete = new EventEmitter<{
-  fileComplete: [dest: string];
+export const beamerDirWritten = new EventEmitter<{
+  dirWritten: [dest: string];
 }>();
 
 function freshWave(): BeamerWave {
@@ -197,7 +197,7 @@ const settle = (job: Job, outcome: JobOutcome) => {
   wave.doneBytes += Math.max(job.request.size ?? 0, 0);
   if (outcome.kind === 'done') {
     wave.failures.delete(job.request.beamerId);
-    beamerFileComplete.emit('fileComplete', job.request.dest);
+    beamerDirWritten.emit('dirWritten', job.request.dest);
   } else {
     wave.failures.set(job.request.beamerId, {
       label: job.request.beamerName,

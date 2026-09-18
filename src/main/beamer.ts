@@ -24,7 +24,7 @@ import {
 import { assertInteger } from '../common/asserts';
 import { hasCompleteFile } from './download';
 import {
-  beamerFileComplete,
+  beamerDirWritten,
   cancelBeamerDownload,
   enqueueBeamerDownload,
   enqueueBeamerPull,
@@ -32,7 +32,7 @@ import {
   prioritizeBeamer,
 } from './downloadQueue';
 
-export { beamerFileComplete, cancelBeamerDownload };
+export { beamerDirWritten, cancelBeamerDownload };
 
 const INDEX_ATTEMPTS = 3;
 const INDEX_RETRY_MS = 1000;
@@ -55,10 +55,11 @@ function asString(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === 'object' && !Array.isArray(value)
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
 
 function asPort(value: unknown): BeamerPort | null {
   const record = asRecord(value);
@@ -103,10 +104,6 @@ function asCount(value: unknown) {
   return Number.isInteger(value) ? (value as number) : undefined;
 }
 
-function asSecs(value: unknown) {
-  return Number.isInteger(value) ? (value as number) : undefined;
-}
-
 function asWarnings(value: unknown) {
   return Array.isArray(value)
     ? value.filter(
@@ -131,9 +128,9 @@ function beamerFromStatus(
     replayCap: asCount(status.replay_cap),
     health: asHealth(status.health),
     warnings: asWarnings(status.warnings),
-    secsSincePortChange: asSecs(status.secs_since_port_change),
-    secsSinceCharacterChange: asSecs(status.secs_since_character_change),
-    secsSinceGameStart: asSecs(status.secs_since_game_start),
+    secsSincePortChange: asCount(status.secs_since_port_change),
+    secsSinceCharacterChange: asCount(status.secs_since_character_change),
+    secsSinceGameStart: asCount(status.secs_since_game_start),
     reported: true,
     pingFails: 0,
     game: asGame(status.game),
@@ -343,17 +340,20 @@ function browseForBeamers(callbacks: {
   };
 }
 
-function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
-  let body: any;
+function safeJsonParse(buf: Buffer): unknown {
   try {
-    body = JSON.parse(buf.toString('utf8'));
+    return JSON.parse(buf.toString('utf8'));
   } catch {
     return null;
   }
-  if (!body || typeof body !== 'object' || !('schema' in body)) {
+}
+
+function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
+  const body = asRecord(safeJsonParse(buf));
+  if (!body || !('schema' in body)) {
     return null;
   }
-  if (!BEAMER_EVENT_KINDS.includes(body.event)) {
+  if (!BEAMER_EVENT_KINDS.includes(body.event as BeamerEventKind)) {
     return null;
   }
   if (
@@ -363,10 +363,9 @@ function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
   ) {
     return null;
   }
-  const { replay } = body;
+  const replay = asRecord(body.replay);
   if (
     !replay ||
-    typeof replay !== 'object' ||
     typeof replay.name !== 'string' ||
     !replay.name ||
     typeof replay.url !== 'string' ||
@@ -374,17 +373,18 @@ function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
   ) {
     return null;
   }
+  const game = asGame(body.game);
   return {
     event: body.event as BeamerEventKind,
     beamerId: body.station_id,
     beamerName: asString(body.station_name),
-    seq: body.seq,
+    seq: body.seq as number,
     replay: {
       name: replay.name,
-      size: Number.isInteger(replay.size) ? replay.size : undefined,
+      size: asCount(replay.size),
       url: replay.url,
     },
-    game: asGame(body.game),
+    game,
   };
 }
 
@@ -601,7 +601,7 @@ async function pruneStaleReplays(
       try {
         await unlink(path.join(dest, name));
       } catch {
-        // Already gone, or in use. The next poll tries again.
+        // Already gone, or in use. The next refresh tries again.
       }
     }),
   );
@@ -764,17 +764,16 @@ const pruneStaleReplaysFor = async (
     return;
   }
 
-  beamerFileComplete.emit('fileComplete', dest);
+  beamerDirWritten.emit('dirWritten', dest);
 };
 
 type BeamerBase = Pick<Beamer, 'address' | 'host'>;
 
 // one missed ping: bump the strike count, keep the last-known record
 const markPingMiss = (base: BeamerBase) => {
-  const existing =
-    Array.from(beamers.values()).find(
-      (beamer) => beamer.address === base.address,
-    ) ?? beamers.get(base.address);
+  const existing = Array.from(beamers.values()).find(
+    (beamer) => beamer.address === base.address,
+  );
   if (!existing) {
     return;
   }

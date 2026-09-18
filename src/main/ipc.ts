@@ -142,9 +142,9 @@ import {
   clampMaxGamesFromIndex,
   getReplayCacheSize,
   clearReplayCache,
+  beamerDirWritten,
   beamerFullPath,
   replayCacheFullPath,
-  beamerFileComplete,
 } from './beamer';
 import {
   assignOfflineModeSetStation,
@@ -427,8 +427,8 @@ export default function setupIPCs(
 
   initBeamers(mainWindow, store.get('autoSubscribeBeamers', true));
 
-  beamerFileComplete.removeAllListeners('fileComplete');
-  beamerFileComplete.on('fileComplete', (dest) => {
+  beamerDirWritten.removeAllListeners('dirWritten');
+  beamerDirWritten.on('dirWritten', (dest) => {
     announceIfActive(dest);
   });
 
@@ -491,10 +491,15 @@ export default function setupIPCs(
   ipcMain.removeHandler('getReplayCacheSize');
   ipcMain.handle('getReplayCacheSize', () => getReplayCacheSize());
 
+  const pathInside = (child: string, parent: string) => {
+    const rel = path.relative(parent, child);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  };
+
   ipcMain.removeHandler('clearReplayCache');
   ipcMain.handle('clearReplayCache', async () => {
     const cached = (replayDir: ReplayDir) =>
-      replayDir.dir.startsWith(replayCacheFullPath);
+      pathInside(replayDir.dir, replayCacheFullPath);
     if (replayDirs.some(cached)) {
       removeReplayDirs(cached);
     }
@@ -609,13 +614,15 @@ export default function setupIPCs(
     if (currentDir && copyDir && currentDir === copyDir) {
       return Promise.resolve(false);
     }
-    if (
-      !undoSrcFullPath &&
-      replayDirs[replayDirs.length - 1].dirType === 'beamer'
-    ) {
-      throw new Error(
-        'Beamer replays live in the cache — erase on the beamer or clear the cache in Settings.',
-      );
+    if (!undoSrcFullPath) {
+      if (replayDirs.length === 0) {
+        throw new Error('replayDirs empty');
+      }
+      if (replayDirs[replayDirs.length - 1].dirType === 'beamer') {
+        throw new Error(
+          'Beamer replays live in the cache — erase on the beamer or clear the cache in Settings.',
+        );
+      }
     }
 
     const slpFilenames = (await readdir(currentDir, { withFileTypes: true }))
@@ -655,8 +662,10 @@ export default function setupIPCs(
   ipcMain.handle(
     'deleteSelectedReplays',
     async (event, replayPaths: string[], used: boolean) => {
-      const beamerRoot = `${beamerFullPath}${path.sep}`;
-      if (replayPaths.some((replayPath) => replayPath.startsWith(beamerRoot))) {
+      const beamerRoot = beamerFullPath;
+      if (
+        replayPaths.some((replayPath) => pathInside(replayPath, beamerRoot))
+      ) {
         throw new Error(
           'Beamer replays live in the cache — erase on the beamer or clear the cache in Settings.',
         );
