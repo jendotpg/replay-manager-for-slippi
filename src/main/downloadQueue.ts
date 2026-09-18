@@ -6,7 +6,6 @@ import {
   DownloadError,
   downloadFile,
   hasCompleteFile,
-  sizeOf,
   toDownloadError,
 } from './download';
 
@@ -274,16 +273,6 @@ const runJob = (job: Job) => {
   running = { job, controller };
   job.currentFileAttempts = 1;
   sendStatus(true);
-  sizeOf(path.join(job.request.dest, `${job.request.name}.part`))
-    .then((started) => {
-      if (running?.job === job && started > job.written) {
-        job.written = started;
-        sendStatus(true);
-      }
-      return undefined;
-    })
-    .catch(() => {});
-
   mkdir(job.request.dest, { recursive: true })
     .then(() => hasCompleteFile(job.request.dest, job.request))
     .then((complete) => {
@@ -297,6 +286,10 @@ const runJob = (job: Job) => {
           beamerResume: true,
           expectedSize: job.request.size,
           signal: controller.signal,
+          onStart: (written) => {
+            job.written = written;
+            sendStatus(true);
+          },
           onChunk: (written) => {
             job.written = written;
             sendStatus();

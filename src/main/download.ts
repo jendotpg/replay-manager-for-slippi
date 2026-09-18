@@ -71,11 +71,12 @@ export type DownloadOptions = {
   expectedSize?: number;
   onChunk?: (written: number) => void;
   onAttempt?: (attempt: number) => void;
+  onStart?: (written: number) => void;
   signal?: AbortSignal;
   beamerResume?: boolean;
 };
 
-export async function sizeOf(file: string) {
+async function sizeOf(file: string) {
   try {
     return (await stat(file)).size;
   } catch {
@@ -264,7 +265,9 @@ export async function downloadFile(
   const part = `${dest}.part`;
   let tries = 1;
   let attempts = 0;
-  let best = await sizeOf(part);
+  const started = await sizeOf(part);
+  options.onStart?.(started);
+  let best = started;
 
   for (;;) {
     try {

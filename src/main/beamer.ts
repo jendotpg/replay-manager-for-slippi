@@ -712,7 +712,7 @@ const listedBeamers = () =>
     .flatMap((beamer) => {
       const label = beamerLabel(beamer.beamerId);
       if (!label) {
-        // no station id - not a real beamer, skip it. 
+        // no station id - not a real beamer, skip it.
         return [];
       }
       return [{ ...beamer, subscribed: isSubscribed(beamer), label }];
