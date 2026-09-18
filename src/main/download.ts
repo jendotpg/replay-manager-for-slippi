@@ -2,6 +2,7 @@ import { createWriteStream } from 'fs';
 import { rename, stat, unlink } from 'fs/promises';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
+import path from 'path';
 
 const CONNECT_TIMEOUT_MS = 4000;
 const STALL_TIMEOUT_MS = 4000;
@@ -79,6 +80,18 @@ export async function sizeOf(file: string) {
     return (await stat(file)).size;
   } catch {
     return 0;
+  }
+}
+
+export async function hasCompleteFile(
+  dest: string,
+  file: { name: string; size?: number },
+) {
+  try {
+    const stats = await stat(path.join(dest, file.name));
+    return stats.isFile() && (file.size == null || stats.size === file.size);
+  } catch {
+    return false;
   }
 }
 
