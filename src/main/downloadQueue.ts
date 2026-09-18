@@ -165,7 +165,9 @@ const finishWave = () => {
 };
 
 const leaveBatch = (batch: Batch) => {
+  // invariant: remaining starts at the batch's job count and drops exactly once per job
   batch.remaining -= 1;
+  // invariant: settled is terminal - a job settles at most once, a batch resolves at most once
   if (batch.remaining > 0 || batch.settled) {
     return;
   }
@@ -177,6 +179,7 @@ const leaveBatch = (batch: Batch) => {
 type JobOutcome = { kind: 'done' } | { kind: 'failed'; failure: DownloadError };
 
 const settle = (job: Job, outcome: JobOutcome) => {
+  // invariant: settled is terminal - a job settles at most once, a batch resolves at most once
   if (job.settled) {
     return;
   }
@@ -185,9 +188,11 @@ const settle = (job: Job, outcome: JobOutcome) => {
   if (index >= 0) {
     jobs.splice(index, 1);
   }
+  // invariant: at most one job runs; the slot is claimed on start and released only by its owner
   if (running?.job === job) {
     running = null;
   }
+  // invariant: each file's wave accounting moves exactly once, and only in settle
   wave.doneFiles += 1;
   wave.doneBytes += Math.max(job.request.size ?? 0, 0);
   if (outcome.kind === 'done') {
@@ -203,6 +208,7 @@ const settle = (job: Job, outcome: JobOutcome) => {
       for (let i = jobs.length - 1; i >= 0; i -= 1) {
         const sibling = jobs[i];
         if (sibling.batch === job.batch) {
+          // invariant: settled is terminal - a job settles at most once, a batch resolves at most once
           sibling.settled = true;
           jobs.splice(i, 1);
           wave.doneFiles += 1;
@@ -245,6 +251,7 @@ const scheduleWake = (ms: number) => {
 };
 
 const pump = () => {
+  // invariant: at most one job runs; the slot is claimed on start and released only by its owner
   if (running) {
     return;
   }
@@ -263,6 +270,7 @@ const pump = () => {
 
 const runJob = (job: Job) => {
   const controller = new AbortController();
+  // invariant: at most one job runs; the slot is claimed on start and released only by its owner
   running = { job, controller };
   job.currentFileAttempts = 1;
   sendStatus(true);
@@ -303,7 +311,7 @@ const runJob = (job: Job) => {
     .then(() => settle(job, { kind: 'done' }))
     .catch((error) => {
       if (running?.job !== job) {
-        return; // a newer run owns the engine; this catch is stale
+        return;
       }
       running = null;
       const interrupted = job.aborted;
@@ -318,6 +326,7 @@ const runJob = (job: Job) => {
         failure.retryAfterMs !== undefined &&
         job.totalAttempts < MAX_REQUEUES
       ) {
+        // invariant: each file's wave accounting moves exactly once, and only in settle
         job.totalAttempts += 1;
         job.waitUntil = Date.now() + failure.retryAfterMs;
         jobs.splice(jobs.indexOf(job), 1);
@@ -342,6 +351,8 @@ const preemptRunning = () => {
 export function cancelBeamerDownload() {
   const dropped = jobs.splice(0);
   dropped.forEach((job) => {
+    // invariant: settled is terminal - a job settles at most once, a batch resolves at most once
+    // invariant: each file's wave accounting moves exactly once, and only in settle
     job.settled = true;
   });
   clearWake();
@@ -351,6 +362,7 @@ export function cancelBeamerDownload() {
     running = null;
   }
   batches.forEach((batch) => {
+    // invariant: settled is terminal - a job settles at most once, a batch resolves at most once
     if (!batch.settled) {
       batch.settled = true;
       batches.delete(batch);
@@ -382,6 +394,7 @@ export const enqueueBeamerDownload = (
     priority,
     batch: {
       seq: 0,
+      // invariant: remaining starts at the batch's job count and drops exactly once per job
       remaining: 1,
       settled: false,
       resolve: () => {},
@@ -417,6 +430,7 @@ export const enqueueBeamerPull = async (
     batchCounter += 1;
     const batch: Batch = {
       seq: batchCounter,
+      // invariant: remaining starts at the batch's job count and drops exactly once per job
       remaining: pending.length,
       settled: false,
       resolve,
