@@ -2,13 +2,12 @@ import { app, BrowserWindow } from 'electron';
 import DnsSd, { DnsSdBrowse } from '@fugood/dns-sd';
 import { createSocket } from 'dgram';
 import os from 'os';
-import { mkdir, readdir, rm, stat, unlink } from 'fs/promises';
+import { mkdir, readdir, unlink } from 'fs/promises';
 import path from 'path';
 import sanitize from 'sanitize-filename';
 import { parse as parseIpaddr } from 'ipaddr.js';
 import {
   BEAMER_EVENT_KINDS,
-  BEAMER_HEALTHS,
   Beamer,
   BeamerEvent,
   BeamerEventKind,
@@ -25,14 +24,12 @@ import { assertInteger } from '../common/asserts';
 import { hasCompleteFile } from './download';
 import {
   beamerDirWritten,
-  cancelBeamerDownload,
   enqueueBeamerDownload,
   enqueueBeamerPull,
   initDownloadQueue,
+  isBeamerDownloadPending,
   prioritizeBeamer,
 } from './downloadQueue';
-
-export { beamerDirWritten, cancelBeamerDownload };
 
 const INDEX_ATTEMPTS = 3;
 const INDEX_RETRY_MS = 1000;
@@ -45,11 +42,11 @@ const EVENT_PORT = 34700;
 const STATUS_TIMEOUT_MS = 4000;
 const MAX_STATUS_BYTES = 1024 * 1024;
 
-export const replayCacheFullPath = path.join(
+export const beamerFullPath = path.join(
   app.getPath('userData'),
   'replayCache',
+  'beamer',
 );
-export const beamerFullPath = path.join(replayCacheFullPath, 'beamer');
 
 function asString(value: unknown) {
   return typeof value === 'string' ? value : '';
@@ -89,9 +86,8 @@ function asGame(value: unknown): BeamerGame | null {
   return { live: record.live === true, ports };
 }
 
-const HEALTHS: BeamerHealth[] = BEAMER_HEALTHS.filter(
-  (health) => health !== 'unknown',
-);
+// must be in sync with BEAMER_HEALTHS in common/types
+const HEALTHS: BeamerHealth[] = ['ok', 'starting', 'warn', 'error'];
 
 function asHealth(value: unknown): BeamerHealth {
   return HEALTHS.includes(value as BeamerHealth)
@@ -246,7 +242,7 @@ async function requestBeamerReset(origin: string) {
       const body = await response.json();
       reported = typeof body?.error === 'string' ? body.error : '';
     } catch {
-      reported = '';
+      reported = ''; // no usable error body...
     }
     throw new Error(
       reported
@@ -265,7 +261,7 @@ async function requestBeamerReset(origin: string) {
       const body = await response.json();
       reported = typeof body?.error === 'string' ? body.error : '';
     } catch {
-      reported = '';
+      reported = ''; // no usable error body...
     }
     throw new Error(
       reported || `${origin} answered ${response.status} for /reset-beamer.`,
@@ -501,7 +497,7 @@ async function getBeamerIndex(origin: string) {
     try {
       resolved = new URL(file.url, origin);
     } catch {
-      return;
+      return; // malformed url - skip the file
     }
     const url = resolved.toString();
     if (!url.startsWith(prefix)) {
@@ -511,7 +507,7 @@ async function getBeamerIndex(origin: string) {
     try {
       name = path.basename(decodeURIComponent(resolved.pathname));
     } catch {
-      return;
+      return; // malformed percent-encoding - skip the file
     }
     if (!name.endsWith('.slp') || name.startsWith('.')) {
       return;
@@ -581,57 +577,20 @@ async function pruneStaleReplays(
 
   await Promise.all(
     [...stale, ...parts].map(async (name) => {
+      if (
+        name.endsWith('.part') &&
+        isBeamerDownloadPending(dest, name.slice(0, -'.part'.length))
+      ) {
+        return;
+      }
       try {
         await unlink(path.join(dest, name));
       } catch {
-        // Already gone, or in use. The next refresh tries again.
+        // Already gone (or in use). The next refresh tries again.
       }
     }),
   );
   return stale;
-}
-
-async function measureReplayCache(cacheRoot: string) {
-  let files = 0;
-  let bytes = 0;
-
-  const walk = async (dir: string) => {
-    let dirents;
-    try {
-      dirents = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    await Promise.all(
-      dirents.map(async (dirent) => {
-        const full = path.join(dir, dirent.name);
-        if (dirent.isDirectory()) {
-          await walk(full);
-          return;
-        }
-        if (
-          !dirent.name.endsWith('.slp') &&
-          !dirent.name.endsWith('.slp.part')
-        ) {
-          return;
-        }
-        try {
-          const stats = await stat(full);
-          files += 1;
-          bytes += stats.size;
-        } catch {
-          // gone between the readdir and the stat...
-        }
-      }),
-    );
-  };
-
-  await walk(cacheRoot);
-  return { files, bytes };
-}
-
-async function wipeReplayCache(cacheRoot: string) {
-  await rm(cacheRoot, { recursive: true, force: true });
 }
 
 let mainWindow: BrowserWindow | undefined;
@@ -1057,7 +1016,8 @@ export async function getPreviousBeamerReplay(beamerId: string, dir: string) {
     const { files } = await getBeamerIndex(origin);
     return (await nextOlderMissingFile(dir, files))?.name ?? '';
   } catch {
-    return '';
+    
+    return ''; // unreachable - there is no previous replay
   }
 }
 
@@ -1080,15 +1040,6 @@ export async function downloadPreviousBeamerReplay(
     throw new Error('Those replays are no longer loaded from a Beamer.');
   }
   await enqueueBeamerPull(dir, [previous], beamerId, label);
-}
-
-export function getReplayCacheSize() {
-  return measureReplayCache(replayCacheFullPath);
-}
-
-export async function clearReplayCache() {
-  cancelBeamerDownload();
-  await wipeReplayCache(replayCacheFullPath);
 }
 
 function setBeamerSubscription(beamerId: string, subscribed: boolean) {

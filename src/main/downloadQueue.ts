@@ -90,6 +90,11 @@ export function initDownloadQueue(
 const isPending = (dest: string, name: string) =>
   jobs.some((job) => job.request.dest === dest && job.request.name === name);
 
+export const isBeamerDownloadPending = (dest: string, name: string) =>
+  Boolean(
+    running?.job.request.dest === dest && running?.job.request.name === name,
+  ) || isPending(dest, name);
+
 const idle = () => running === null && jobs.length === 0;
 
 const clearWake = () => {
