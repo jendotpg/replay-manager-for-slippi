@@ -1016,8 +1016,7 @@ export async function getPreviousBeamerReplay(beamerId: string, dir: string) {
     const { files } = await getBeamerIndex(origin);
     return (await nextOlderMissingFile(dir, files))?.name ?? '';
   } catch {
-    
-    return ''; // unreachable - there is no previous replay
+    return ''; // beamer unreachable - there is no previous replay
   }
 }
 
