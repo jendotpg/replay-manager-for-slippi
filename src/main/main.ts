@@ -8,6 +8,7 @@
  * When running `npm run build` or `npm run build:main`, this file is compiled to
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
+import './portable-paths';
 import path from 'path';
 import { app, BrowserWindow, shell } from 'electron';
 import { EventEmitter } from 'events';
@@ -42,7 +43,10 @@ async function handleProtocolUrl(url: string) {
   }
 }
 
-if (!app.isDefaultProtocolClient('replay-manager')) {
+if (
+  !process.env.PORTABLE_EXECUTABLE_DIR &&
+  !app.isDefaultProtocolClient('replay-manager')
+) {
   app.setAsDefaultProtocolClient('replay-manager');
 }
 
