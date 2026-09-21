@@ -855,8 +855,7 @@ const onBeamerEvent = (event: BeamerEvent) => {
   }
 };
 
-const ensureBeamerEvents = () => {
-  // turned on as soon as a beamer is first seen
+const startBeamerEvents = () => {
   if (beamerEvents) {
     return;
   }
@@ -868,6 +867,11 @@ const ensureBeamerEvents = () => {
   });
 };
 
+const stopBeamerEvents = () => {
+  beamerEvents?.stop();
+  beamerEvents = null;
+};
+
 const startBeamerBrowser = () => {
   if (beamerBrowse) {
     return;
@@ -875,7 +879,6 @@ const startBeamerBrowser = () => {
   beamerFleetError = '';
   beamerBrowse = browseForBeamers({
     onFound: (base) => {
-      ensureBeamerEvents();
       const existing = Array.from(beamers.entries()).find(
         ([, beamer]) => beamer.address === base.address,
       );
@@ -931,25 +934,27 @@ const stopBeamerBrowser = () => {
   beamerFleetError = '';
 };
 
-const beamerBrowseWanted = () =>
+const beamerListenersWanted = () =>
   beamerBrowseOpen || autoSubscribeBeamers || subscribedBeamers.size > 0;
 
-const updateBeamerBrowser = () => {
-  if (beamerBrowseWanted()) {
+const updateBeamerListeners = () => {
+  if (beamerListenersWanted()) {
     startBeamerBrowser();
+    startBeamerEvents();
   } else {
     stopBeamerBrowser();
+    stopBeamerEvents();
   }
 };
 
 const stopBrowse = () => {
   beamerBrowseOpen = false;
-  updateBeamerBrowser();
+  updateBeamerListeners();
 };
 
 export function startBeamerBrowse() {
   beamerBrowseOpen = true;
-  startBeamerBrowser();
+  updateBeamerListeners();
   refreshAllBeamers().catch(() => {}); // truth-check the fleet the moment the dialog opens
   sendBeamerFleet();
 }
@@ -1070,8 +1075,8 @@ function setBeamerSubscription(beamerId: string, subscribed: boolean) {
   } else {
     unsubscribed.add(beamerId);
     subscribedBeamers.delete(beamerId);
-    updateBeamerBrowser();
   }
+  updateBeamerListeners();
 }
 
 export function setBeamerSubscribed(beamerId: string, subscribed: boolean) {
@@ -1094,7 +1099,7 @@ export function setBeamersAutoSubscribe(on: boolean) {
       sendBeamerFleet();
     }
   }
-  updateBeamerBrowser();
+  updateBeamerListeners();
 }
 
 export async function refreshBeamerStatus(beamerId: string) {
@@ -1172,5 +1177,5 @@ export function initBeamers(
   mainWindow = initMainWindow;
   autoSubscribeBeamers = initAutoSubscribe;
   initDownloadQueue(sendBeamerDownloadStatus);
-  updateBeamerBrowser();
+  updateBeamerListeners();
 }
