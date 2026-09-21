@@ -496,8 +496,12 @@ export default function Settings({
               label="Auto-subscribe to all Beamers"
               labelPlacement="end"
               set={async (checked) => {
-                await window.electron.setBeamersAutoSubscribe(checked);
-                setBeamersAutoSubscribe(checked);
+                try {
+                  await window.electron.setBeamersAutoSubscribe(checked);
+                  setBeamersAutoSubscribe(checked);
+                } catch (e) {
+                  showErrorDialog([e instanceof Error ? e.message : String(e)]);
+                }
               }}
             />
             <LabeledCheckbox

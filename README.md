@@ -146,7 +146,7 @@ New background traffic is only added if there are Beamers on the network with on
 
 Four things change for a user who never touches a Beamer:
 
-1. `downloadFile` is shared with the `replay-manager:` protocol handler, so that path inherits the resume, the retries, the watchdogs, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
+1. `downloadFile` is shared with the `replay-manager:` protocol handler, so that path inherits the resume, the retries, the watchdogs, `Retry-After` honoring, streaming to disk instead of buffering the whole file in memory, and a new set of error strings.
 2. A failed protocol download leaves a `.part` file behind. Upstream immediately deleted the partial file; this fork keeps it so a retry resumes and Settings can delete it. If the host ignores `Range` the fragment is dropped and the file downloads in full upon retry.
 3. Protocol downloads moved from `userData/protocol` to `userData/replayCache/protocol`, alongside the Beamer cache at `userData/replayCache/beamer`. One "Delete cached replays" button in Settings clears both.
 4. Two controls are always visible: the Beamer button in the app bar and the "No cached replays" row in Settings.

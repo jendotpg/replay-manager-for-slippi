@@ -42,7 +42,7 @@ import {
   Replay,
   ReportSettings,
   SelectedSetChain,
-  Set as MatchSet,
+  Set,
   DownloadStatus,
   DownloadFailure,
   StartggGame,
@@ -221,6 +221,8 @@ export default function setupIPCs(
     autoSubscribeBeamers: boolean;
     copySettings: CopySettings;
     hideCopyButton: boolean;
+    maxGamesFromIndex: number;
+    mode: Mode;
     offlineModePassword: string;
   }>();
   initOfflineMode(mainWindow);
@@ -285,7 +287,7 @@ export default function setupIPCs(
     const failedFiles: DownloadFailure[] = [];
     const total = slpUrls.length;
     let completed = 0;
-    const pending = new Set(slpUrls);
+    const pending: string[] = [];
 
     // a deeplink has no good label - just use the origin
     const sourceOf = (url: string) => {
@@ -333,7 +335,7 @@ export default function setupIPCs(
           failedFiles.push({ label: url });
         } finally {
           completed += 1;
-          pending.delete(url);
+          pending.splice(pending.indexOf(url), 1);
           send(fileName);
         }
       }),
@@ -476,7 +478,6 @@ export default function setupIPCs(
   });
 
   let maxGamesFromIndex = store.get('maxGamesFromIndex', 4);
-
   initBeamers(mainWindow, store.get('autoSubscribeBeamers', true));
 
   beamerDirWritten.removeAllListeners('dirWritten');
@@ -496,14 +497,9 @@ export default function setupIPCs(
       display,
       beamerId: indexBeamerId,
     } = await selectBeamer(beamerId, maxGamesFromIndex);
-    let existingRemoved = false;
-    removeReplayDirs((replayDir) => {
-      if (existingRemoved || replayDir.dir !== dest) {
-        return false;
-      }
-      existingRemoved = true;
-      return true;
-    });
+    // remove any existing entry for this cache dir before adding the new one;
+    // see ReplayDir in ../common/types.ts for the shape being stored here
+    removeReplayDirs((replayDir) => replayDir.dir === dest);
     addReplayDir({
       dir: dest,
       dirType: 'beamer',
@@ -1108,7 +1104,7 @@ export default function setupIPCs(
     });
   });
 
-  const getRealSetId = async (key: string, originalSet: MatchSet) => {
+  const getRealSetId = async (key: string, originalSet: Set) => {
     const updatedPhaseGroup = await getPhaseGroup(
       key,
       assertInteger(selectedPhaseGroupId),
@@ -1128,7 +1124,7 @@ export default function setupIPCs(
   ipcMain.removeHandler('assignStream');
   ipcMain.handle(
     'assignStream',
-    async (event, originalSet: MatchSet, streamId: number) => {
+    async (event, originalSet: Set, streamId: number) => {
       if (!sggApiKey) {
         throw new Error('Please set start.gg API key');
       }
@@ -1161,7 +1157,7 @@ export default function setupIPCs(
   ipcMain.removeHandler('assignStation');
   ipcMain.handle(
     'assignStation',
-    async (event, originalSet: MatchSet, stationId: number) => {
+    async (event, originalSet: Set, stationId: number) => {
       if (!sggApiKey) {
         throw new Error('Please set start.gg API key');
       }
@@ -1206,7 +1202,7 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('callSet');
-  ipcMain.handle('callSet', async (event, originalSet: MatchSet) => {
+  ipcMain.handle('callSet', async (event, originalSet: Set) => {
     if (!sggApiKey) {
       throw new Error('Please set start.gg API key');
     }
@@ -1236,7 +1232,7 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('startSet');
-  ipcMain.handle('startSet', async (event, originalSet: MatchSet) => {
+  ipcMain.handle('startSet', async (event, originalSet: Set) => {
     if (!sggApiKey) {
       throw new Error('Please set start.gg API key');
     }
@@ -1271,13 +1267,13 @@ export default function setupIPCs(
     async (
       event,
       set: StartggSet,
-      originalSet: MatchSet,
-    ): Promise<MatchSet | undefined> => {
+      originalSet: Set,
+    ): Promise<Set | undefined> => {
       if (!sggApiKey) {
         throw new Error('Please set start.gg API key');
       }
 
-      let updatedSet: MatchSet | undefined;
+      let updatedSet: Set | undefined;
       try {
         updatedSet = await reportSet(
           sggApiKey,
@@ -1343,7 +1339,7 @@ export default function setupIPCs(
   ipcMain.removeHandler('updateSet');
   ipcMain.handle(
     'updateSet',
-    async (event, set: StartggSet): Promise<MatchSet | undefined> => {
+    async (event, set: StartggSet): Promise<Set | undefined> => {
       if (!sggApiKey) {
         throw new Error('Please set start.gg API key');
       }

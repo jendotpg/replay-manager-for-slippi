@@ -8,6 +8,7 @@ import sanitize from 'sanitize-filename';
 import { parse as parseIpaddr } from 'ipaddr.js';
 import {
   BEAMER_EVENT_KINDS,
+  BEAMER_HEALTHS,
   Beamer,
   BeamerEvent,
   BeamerEventKind,
@@ -86,11 +87,8 @@ function asGame(value: unknown): BeamerGame | null {
   return { live: record.live === true, ports };
 }
 
-// must be in sync with BEAMER_HEALTHS in common/types
-const HEALTHS: BeamerHealth[] = ['ok', 'starting', 'warn', 'error'];
-
 function asHealth(value: unknown): BeamerHealth {
-  return HEALTHS.includes(value as BeamerHealth)
+  return BEAMER_HEALTHS.includes(value as (typeof BEAMER_HEALTHS)[number])
     ? (value as BeamerHealth)
     : 'unknown';
 }
@@ -143,7 +141,11 @@ function unreportedBeamer(base: Pick<Beamer, 'address' | 'host'>): Beamer {
 
 function isStatusBody(body: unknown): body is BeamerStatusBody {
   const record = asRecord(body);
-  return Boolean(record && 'schema' in record && 'station_id' in record);
+  return Boolean(
+    record &&
+      typeof record.schema === 'number' &&
+      typeof record.station_id === 'string',
+  );
 }
 
 async function readStatus(response: Response) {
@@ -334,6 +336,14 @@ function safeJsonParse(buf: Buffer): unknown {
   }
 }
 
+async function readJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 export function sanitizeReplayName(name: string): string {
   const base = path.basename(name);
   if (!base.endsWith('.slp') || base.startsWith('.')) {
@@ -493,22 +503,16 @@ async function getBeamerIndex(origin: string) {
     );
   }
 
-  let index: { files?: unknown; station_id?: unknown } | null = null;
-  try {
-    index = (await response.json()) as {
-      files?: unknown;
-      station_id?: unknown;
-    };
-  } catch {
-    index = null;
-  }
-  if (!Array.isArray(index?.files)) {
+  const index = asRecord(await readJson(response));
+  const filesList = Array.isArray(index?.files) ? index.files : null;
+  if (!index || !filesList) {
     throw new Error(`${origin} did not return a replay index.`);
   }
 
   const files: BeamerFile[] = [];
-  index.files.forEach((file: any) => {
-    if (typeof file?.url !== 'string' || !file.url) {
+  filesList.forEach((entry: unknown) => {
+    const file = asRecord(entry);
+    if (!file || typeof file.url !== 'string' || !file.url) {
       return;
     }
     const url = beamerReplayUrl(file.url, origin);
@@ -527,7 +531,7 @@ async function getBeamerIndex(origin: string) {
     }
     files.push({
       name,
-      size: Number.isInteger(file.size) ? file.size : undefined,
+      size: Number.isInteger(file.size) ? (file.size as number) : undefined,
       url,
     });
   });
@@ -554,6 +558,8 @@ async function nextOlderMissingFile(dest: string, files: BeamerFile[]) {
   const present = await Promise.all(
     files.map((file) => hasCompleteFile(dest, file)),
   );
+  // the index is newest-first: the last present file is the oldest one we
+  // have, so the next file after it is the newest replay we are missing
   const oldestPresent = present.lastIndexOf(true);
   return oldestPresent >= 0 && oldestPresent + 1 < files.length
     ? files[oldestPresent + 1]
@@ -610,7 +616,9 @@ let mainWindow: BrowserWindow | undefined;
 let autoSubscribeBeamers = false;
 
 const sendBeamerDownloadStatus = (status: DownloadStatus) => {
-  mainWindow?.webContents.send('beamerDownloadStatus', status);
+  if (mainWindow) {
+    mainWindow.webContents.send('beamerDownloadStatus', status);
+  }
 };
 
 const originByBeamer = new Map<string, string>();
@@ -681,7 +689,9 @@ const buildBeamerFleet = (): BeamerFleet => ({
 });
 
 const sendBeamerFleet = () => {
-  mainWindow?.webContents.send('beamerFleet', buildBeamerFleet());
+  if (mainWindow) {
+    mainWindow.webContents.send('beamerFleet', buildBeamerFleet());
+  }
 };
 
 const pruneStaleReplaysFor = async (

@@ -286,9 +286,6 @@ export async function downloadFile(
       if (!failure.retryable) {
         throw failure;
       }
-      if (failure.retryAfterMs !== undefined) {
-        throw failure;
-      }
 
       // eslint-disable-next-line no-await-in-loop
       const written = await sizeOf(part);
@@ -305,6 +302,7 @@ export async function downloadFile(
 
       tries += 1;
       options.onAttempt?.(tries);
+
       const backoff =
         failure.retryAfterMs ??
         BACKOFF_MS[Math.min(attempts - 1, BACKOFF_MS.length - 1)];

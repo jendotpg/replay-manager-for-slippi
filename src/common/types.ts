@@ -609,15 +609,11 @@ export type BeamerGame = {
   ports: BeamerPort[];
 };
 
-export const BEAMER_HEALTHS = [
-  'ok',
-  'starting',
-  'warn',
-  'error',
-  'unknown',
-] as const;
+// healths a beamer can report in its status body; 'unknown' is reserved for
+// beamers that have not reported
+export const BEAMER_HEALTHS = ['ok', 'starting', 'warn', 'error'] as const;
 
-export type BeamerHealth = (typeof BEAMER_HEALTHS)[number];
+export type BeamerHealth = (typeof BEAMER_HEALTHS)[number] | 'unknown';
 
 export type Beamer = {
   address: string;
@@ -670,7 +666,7 @@ export type BeamerStatusBody = {
   station_name?: string;
   replay_count?: number;
   replay_cap?: number;
-  health?: string;
+  health?: BeamerHealth;
   warnings?: unknown;
   secs_since_port_change?: number;
   secs_since_game_start?: number;
