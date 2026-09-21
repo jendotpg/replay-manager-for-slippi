@@ -246,13 +246,7 @@ export default function setupIPCs(
   function announceReplayDir() {
     const top =
       replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
-    mainWindow.webContents.send(
-      'replayDir',
-      top ? top.display : '',
-      top ? top.dirType : 'local',
-      top?.dirType === 'beamer' ? top.beamerId : '',
-      top ? top.dir : '',
-    );
+    mainWindow.webContents.send('replayDir', top);
   }
 
   function addReplayDir(entry: ReplayDir) {

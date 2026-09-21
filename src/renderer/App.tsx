@@ -1072,21 +1072,22 @@ function Hello() {
   }, [confirmedCopySettings, copyDirSet, selectedSet, tournamentSet]);
 
   useEffect(() => {
-    window.electron.onReplayDir(
-      (e, newDisplay, newDirType, newBeamerId, newDir) => {
-        if (!undoSubdir) {
-          setDirState({
-            dir: newDir,
-            dirLabel: newDisplay,
-            dirType: newDirType,
-            selectedBeamer: newDirType === 'beamer' ? newBeamerId : '',
-          });
-          setWasDeleted(false);
-          refreshReplays(true);
-          setEjected(false);
-        }
-      },
-    );
+    window.electron.onReplayDir((_e, replayDir) => {
+      if (!undoSubdir) {
+        setDirState({
+          dir: replayDir ? replayDir.dir : '',
+          dirLabel: replayDir ? replayDir.display : '',
+          dirType: replayDir ? replayDir.dirType : 'local',
+          selectedBeamer:
+            replayDir && replayDir.dirType === 'beamer'
+              ? replayDir.beamerId
+              : '',
+        });
+        setWasDeleted(false);
+        refreshReplays(true);
+        setEjected(false);
+      }
+    });
   }, [refreshReplays, undoSubdir]);
 
   const availablePlayers: PlayerOverrides[] = [];

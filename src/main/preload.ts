@@ -30,7 +30,7 @@ import {
   OfflineModeStatus,
   StartggGame,
   BeamerFleet,
-  DirType,
+  ReplayDir,
 } from '../common/types';
 
 const electronHandler = {
@@ -404,13 +404,7 @@ const electronHandler = {
     ipcRenderer.invoke('setSelectedSetId', selectedSetId);
   },
   onReplayDir: (
-    callback: (
-      event: IpcRendererEvent,
-      display: string,
-      dirType: DirType,
-      beamerId: string,
-      dir: string,
-    ) => void,
+    callback: (event: IpcRendererEvent, replayDir: ReplayDir | null) => void,
   ) => {
     ipcRenderer.removeAllListeners('replayDir');
     ipcRenderer.on('replayDir', callback);
