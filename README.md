@@ -8,6 +8,8 @@ TODO:
 - FEATURE REQUEST: show warning when beamer firmwares don't match
 - FEATURE REQUEST: sort station numbers numerically
 - FEATURE REQUEST: background status poll more often. maybe whenever a multicast comes in poll fleet?
+- WRITE-UP: add a "Why not FTP/Console Mirror?" section
+- WRITE-UP: split readme into PR draft and `src/docs/beamer.md`
 - actually use this in tournament a few times
 
   - ~~NYSE redemption (1 router)~~ ✅
