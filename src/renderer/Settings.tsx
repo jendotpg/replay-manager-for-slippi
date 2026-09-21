@@ -478,8 +478,10 @@ export default function Settings({
                   try {
                     await window.electron.clearReplayCache();
                     setReplayCache({ files: 0, bytes: 0 });
-                  } catch (e: any) {
-                    showErrorDialog([e instanceof Error ? e.message : e]);
+                  } catch (e) {
+                    showErrorDialog([
+                      e instanceof Error ? e.message : String(e),
+                    ]);
                   } finally {
                     setClearingReplayCache(false);
                   }

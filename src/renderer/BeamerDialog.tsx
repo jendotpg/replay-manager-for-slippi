@@ -336,8 +336,8 @@ export default function BeamerDialog({
     try {
       await window.electron.selectBeamer(beamerId);
       onClose();
-    } catch (e: any) {
-      setError(e instanceof Error ? e.message : e);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyWith(null);
     }
@@ -348,8 +348,8 @@ export default function BeamerDialog({
     setError('');
     try {
       await window.electron.refreshBeamerStatus(beamerId);
-    } catch (e: any) {
-      setError(e instanceof Error ? e.message : e);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyWith(null);
     }
@@ -363,8 +363,8 @@ export default function BeamerDialog({
         beamerKey(beamer),
         !beamer.subscribed,
       );
-    } catch (e: any) {
-      setError(e instanceof Error ? e.message : e);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyWith(null);
     }
@@ -375,8 +375,8 @@ export default function BeamerDialog({
     setError('');
     try {
       await window.electron.refreshAllBeamers();
-    } catch (e: any) {
-      setError(e instanceof Error ? e.message : e);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyWith(null);
     }
@@ -387,8 +387,8 @@ export default function BeamerDialog({
     setError('');
     try {
       await window.electron.resetBeamer(beamerKey(beamer));
-    } catch (e: any) {
-      setError(e instanceof Error ? e.message : e);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyWith(null);
       setConfirmingReset(null);
@@ -407,8 +407,8 @@ export default function BeamerDialog({
             .join('\n')}`,
         );
       }
-    } catch (e: any) {
-      setError(e instanceof Error ? e.message : e);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyWith(null);
       setConfirmingReset(null);

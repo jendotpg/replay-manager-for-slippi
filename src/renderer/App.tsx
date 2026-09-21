@@ -901,8 +901,8 @@ function Hello() {
     try {
       await window.electron.downloadPreviousBeamerReplay(selectedBeamer);
       await refreshReplays();
-    } catch (e: any) {
-      showErrorDialog([e instanceof Error ? e.message : e]);
+    } catch (e) {
+      showErrorDialog([e instanceof Error ? e.message : String(e)]);
     } finally {
       setDownloadingPreviousReplay(false);
     }
@@ -2330,9 +2330,9 @@ function Hello() {
                                 await window.electron.refreshFromBeamer(
                                   selectedBeamer,
                                 );
-                              } catch (e: any) {
+                              } catch (e) {
                                 showErrorDialog([
-                                  e instanceof Error ? e.message : e,
+                                  e instanceof Error ? e.message : String(e),
                                 ]);
                               } finally {
                                 setRefreshingBeamer(false);

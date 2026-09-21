@@ -52,15 +52,12 @@ export function toDownloadError(error: unknown) {
     : new DownloadError(error instanceof Error ? error.message : String(error));
 }
 
-function networkError(error: unknown, beamer: boolean) {
+function networkError(error: unknown) {
   const code = (error as any)?.cause?.code ?? (error as any)?.code;
   if (typeof code === 'string' && UNREACHABLE_CODES.has(code)) {
-    return new DownloadError(
-      `unreachable (${code})`, 
-      {
-        unreachable: true,
-      },
-    );
+    return new DownloadError(`unreachable (${code})`, {
+      unreachable: true,
+    });
   }
   if (typeof code === 'string') {
     return new DownloadError(`the connection failed (${code})`);
@@ -198,7 +195,7 @@ async function downloadAttempt(
       if (error instanceof Error && error.name === 'AbortError') {
         throw new DownloadError('timed out');
       }
-      throw networkError(error, beamer);
+      throw networkError(error);
     }
 
     if (from > 0 && response.status === 416) {
@@ -245,7 +242,7 @@ async function downloadAttempt(
       if (error instanceof Error && error.name === 'AbortError') {
         throw new DownloadError('the connection stalled');
       }
-      throw networkError(error, beamer);
+      throw networkError(error);
     }
 
     if (expected != null && written !== expected) {

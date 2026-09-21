@@ -187,7 +187,7 @@ async function getBeamerStatus(origin: string): Promise<StatusResult> {
     response = await fetch(`${origin}/status`, {
       signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
     });
-  } catch (e: any) {
+  } catch (e) {
     if (
       e instanceof Error &&
       (e.name === 'TimeoutError' || e.name === 'AbortError')
@@ -224,7 +224,7 @@ async function requestBeamerReset(origin: string) {
       body: '',
       signal: AbortSignal.timeout(RESET_TIMEOUT_MS),
     });
-  } catch (e: any) {
+  } catch (e) {
     if (
       e instanceof Error &&
       (e.name === 'TimeoutError' || e.name === 'AbortError')
@@ -442,14 +442,14 @@ function toBeamerOrigin(addressOrHost: string) {
 }
 
 async function fetchIndex(origin: string) {
-  let last: any;
+  let last: unknown;
   for (let i = 0; i < INDEX_ATTEMPTS; i += 1) {
     try {
       // eslint-disable-next-line no-await-in-loop
       return await fetch(`${origin}/SLIPPI/`, {
         signal: AbortSignal.timeout(5000),
       });
-    } catch (e: any) {
+    } catch (e) {
       last = e;
       if (i < INDEX_ATTEMPTS - 1) {
         // eslint-disable-next-line no-await-in-loop
@@ -478,7 +478,7 @@ async function getBeamerIndex(origin: string) {
   let response;
   try {
     response = await fetchIndex(origin);
-  } catch (e: any) {
+  } catch (e) {
     if (
       e instanceof Error &&
       (e.name === 'TimeoutError' || e.name === 'AbortError')
@@ -493,9 +493,12 @@ async function getBeamerIndex(origin: string) {
     );
   }
 
-  let index: any;
+  let index: { files?: unknown; station_id?: unknown } | null = null;
   try {
-    index = await response.json();
+    index = (await response.json()) as {
+      files?: unknown;
+      station_id?: unknown;
+    };
   } catch {
     index = null;
   }
