@@ -28,7 +28,7 @@ import {
   Refresh,
   Warning,
 } from '@mui/icons-material';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   BeamerGame,
   BeamerFleet,
@@ -180,27 +180,50 @@ function PortCell({
   );
 }
 
+const secsClock = (() => {
+  let now = Date.now();
+  let interval: ReturnType<typeof setInterval> | undefined;
+  const listeners = new Set<() => void>();
+  return {
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      if (interval === undefined) {
+        now = Date.now();
+        interval = setInterval(() => {
+          now = Date.now();
+          listeners.forEach((notify) => notify());
+        }, 1000);
+      }
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0 && interval !== undefined) {
+          clearInterval(interval);
+          interval = undefined;
+        }
+      };
+    },
+    getNow: () => now,
+  };
+})();
+
+function useSecsClockNow() {
+  return useSyncExternalStore(secsClock.subscribe, secsClock.getNow);
+}
+
 function LiveSecsText({ reported }: { reported: number | undefined }) {
-  const [now, setNow] = useState(() => Date.now());
-  const baseline = useRef<{ secs: number; at: number } | undefined>(undefined);
+  const now = useSecsClockNow();
+  const [baseline, setBaseline] = useState<{ secs: number; at: number }>();
 
   useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+    setBaseline(
+      reported == null ? undefined : { secs: reported, at: Date.now() },
+    );
+  }, [reported]);
 
-  let secs: number | undefined;
-  if (reported == null) {
-    baseline.current = undefined;
-  } else {
-    const previous = baseline.current;
-    if (!previous || previous.secs !== reported) {
-      baseline.current = { secs: reported, at: Date.now() };
-      secs = reported;
-    } else {
-      secs = previous.secs + Math.floor((now - previous.at) / 1000);
-    }
-  }
+  const secs =
+    reported == null || !baseline || baseline.secs !== reported
+      ? reported
+      : baseline.secs + Math.max(0, Math.floor((now - baseline.at) / 1000));
 
   return (
     <Typography
