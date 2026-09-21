@@ -334,6 +334,14 @@ function safeJsonParse(buf: Buffer): unknown {
   }
 }
 
+export function sanitizeReplayName(name: string): string {
+  const base = path.basename(name);
+  if (!base.endsWith('.slp') || base.startsWith('.')) {
+    return '';
+  }
+  return base;
+}
+
 function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
   const body = asRecord(safeJsonParse(buf));
   if (!body || !('schema' in body)) {
@@ -346,13 +354,9 @@ function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
     return null;
   }
   const replay = asRecord(body.replay);
-  if (
-    !replay ||
-    typeof replay.name !== 'string' ||
-    !replay.name ||
-    typeof replay.url !== 'string' ||
-    !replay.url
-  ) {
+  const name =
+    typeof replay?.name === 'string' ? sanitizeReplayName(replay.name) : '';
+  if (!replay || !name || typeof replay.url !== 'string' || !replay.url) {
     return null;
   }
   return {
@@ -360,7 +364,7 @@ function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
     beamerId: body.station_id,
     beamerName: asString(body.station_name),
     replay: {
-      name: replay.name,
+      name,
       size: asCount(replay.size),
       url: replay.url,
     },
@@ -458,6 +462,18 @@ async function fetchIndex(origin: string) {
   throw last;
 }
 
+export function beamerReplayUrl(url: string, origin: string): string {
+  let resolved;
+  try {
+    resolved = new URL(url, origin);
+  } catch {
+    return '';
+  }
+  const resolvedStr = resolved.toString();
+  const prefix = `${origin}/SLIPPI/`;
+  return resolvedStr.startsWith(prefix) ? resolvedStr : '';
+}
+
 async function getBeamerIndex(origin: string) {
   let response;
   try {
@@ -487,29 +503,23 @@ async function getBeamerIndex(origin: string) {
     throw new Error(`${origin} did not return a replay index.`);
   }
 
-  const prefix = `${origin}/SLIPPI/`;
   const files: BeamerFile[] = [];
   index.files.forEach((file: any) => {
     if (typeof file?.url !== 'string' || !file.url) {
       return;
     }
-    let resolved;
-    try {
-      resolved = new URL(file.url, origin);
-    } catch {
-      return; // malformed url - skip the file
+    const url = beamerReplayUrl(file.url, origin);
+    if (!url) {
+      return; // malformed or off-origin url - skip the file
     }
-    const url = resolved.toString();
-    if (!url.startsWith(prefix)) {
-      return;
-    }
-    let name;
+    let name = '';
     try {
-      name = path.basename(decodeURIComponent(resolved.pathname));
+      const { pathname } = new URL(url);
+      name = sanitizeReplayName(path.basename(decodeURIComponent(pathname)));
     } catch {
       return; // malformed percent-encoding - skip the file
     }
-    if (!name.endsWith('.slp') || name.startsWith('.')) {
+    if (!name) {
       return;
     }
     files.push({
@@ -822,11 +832,16 @@ const onBeamerEvent = (event: BeamerEvent) => {
         if (!label) {
           throw new Error('Refusing to pull for a beamer with no station id.');
         }
+        const name = sanitizeReplayName(event.replay.name);
+        const url = name ? beamerReplayUrl(event.replay.url, origin) : '';
+        if (!name || !url) {
+          throw new Error('Ignoring replay that fails beamer sanitization.');
+        }
         enqueueBeamerDownload(
           {
             dest: beamerDirFor(beamerFullPath, event.beamerId),
-            name: event.replay.name,
-            url: new URL(event.replay.url, origin).toString(),
+            name,
+            url,
             size: event.replay.size,
             beamerId: event.beamerId,
             beamerName: label,
