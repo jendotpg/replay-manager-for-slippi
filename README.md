@@ -5,9 +5,12 @@ This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay
 TODO:
 
 - CODE QUALITY: clean this whole thing up :3
-- actually use this in tournament a few times:
+- FEATURE REQUEST: show warning when beamer firmwares don't match
+- FEATURE REQUEST: sort station numbers numerically
+- actually use this in tournament a few times
 
   - ~~NYSE redemption (1 router)~~ ✅
+  - ~~Melee at Recess (1 router)~~ ✅
   - NYSE main bracket (1 router, maybe 2 APs - we'll need to test...)
   - dawn of the DED (2-3 sharded routers? 1 router, 2-3 APs? we'll need to test...)
   - if all of these work well, ill submit a PR to upstream

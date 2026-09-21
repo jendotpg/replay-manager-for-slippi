@@ -1,8 +1,10 @@
 # stolen from https://github.com/pyinstaller/pyinstaller/blob/21f72db2610fa25e9519e54838906e7861435840/PyInstaller/utils/osx.py#L283
 import binascii
+import os
 import secrets
 import sys
 
+os.system("python3 -m pip install macholib")
 from macholib.MachO import MachO
 from macholib.mach_o import LC_UUID
 
