@@ -107,15 +107,12 @@ export default function BeamerDownloadSnackbar({
     const names = status.sources;
     const visible = names.slice(0, MAX_VISIBLE_SOURCES).join(', ');
     const overflow = names.length - MAX_VISIBLE_SOURCES;
-    const succeeded = (filesDone ?? 0) - (failedCount ?? 0);
-    const counted =
-      totalFiles === undefined
-        ? ''
-        : ` (${Math.min(succeeded + 1, totalFiles)} of ${totalFiles})`;
-    const failed =
-      failedCount === undefined || failedCount === 0
-        ? ''
-        : `${failedCount} failed, `;
+    const succeeded = filesDone - failedCount;
+    const counted = ` (${Math.min(
+      succeeded + 1,
+      totalFiles,
+    )} of ${totalFiles})`;
+    const failed = failedCount === 0 ? '' : `${failedCount} failed, `;
     content = (
       <Stack gap={1}>
         <Stack
