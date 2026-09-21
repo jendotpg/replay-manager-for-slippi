@@ -300,6 +300,7 @@ export default function setupIPCs(
         currentFile: fileName,
         filesDone: completed - 1,
         totalFiles: total,
+        failedCount: failedFiles.length,
       };
       if (mainWindow) {
         mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
@@ -328,6 +329,7 @@ export default function setupIPCs(
       currentFile: '',
       filesDone: total,
       totalFiles: total,
+      failedCount: failedFiles.length,
     };
     if (mainWindow) {
       mainWindow.webContents.send('slp-download-status', slpDownloadStatus);

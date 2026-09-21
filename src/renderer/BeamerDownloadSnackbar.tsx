@@ -103,14 +103,19 @@ export default function BeamerDownloadSnackbar({
 
   let content = null;
   if (status.status === 'downloading') {
-    const { filesDone, totalFiles, attempt } = status;
+    const { filesDone, totalFiles, failedCount, attempt } = status;
     const names = status.sources;
     const visible = names.slice(0, MAX_VISIBLE_SOURCES).join(', ');
     const overflow = names.length - MAX_VISIBLE_SOURCES;
+    const succeeded = (filesDone ?? 0) - (failedCount ?? 0);
     const counted =
-      totalFiles === undefined || filesDone === undefined
+      totalFiles === undefined
         ? ''
-        : ` (${Math.min(filesDone + 1, totalFiles)} of ${totalFiles})`;
+        : ` (${Math.min(succeeded + 1, totalFiles)} of ${totalFiles})`;
+    const failed =
+      failedCount === undefined || failedCount === 0
+        ? ''
+        : `${failedCount} failed, `;
     content = (
       <Stack gap={1}>
         <Stack
@@ -123,6 +128,7 @@ export default function BeamerDownloadSnackbar({
         </Stack>
         <LinearProgressWithLabel value={status.progress} />
         <Typography variant="body2" color="text.secondary">
+          {failed}
           {visible || status.currentFile}
           {overflow > 0 && (
             <Typography component="span" variant="body2" color="text.disabled">
@@ -179,11 +185,11 @@ export default function BeamerDownloadSnackbar({
         </Typography>
         {status.failedFiles.map((file) => (
           <Typography
-            key={`${file.label ?? ''}|${file.reason ?? ''}`}
+            key={`${file.label ?? ''}|${file.name ?? ''}|${file.reason ?? ''}`}
             variant="body2"
             color="text.secondary"
           >
-            {[file.label, file.reason].filter(Boolean).join(' - ')}
+            {[file.label, file.name, file.reason].filter(Boolean).join(' - ')}
           </Typography>
         ))}
       </Stack>

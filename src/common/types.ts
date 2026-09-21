@@ -438,6 +438,7 @@ export enum WebSocketServerStatus {
 
 export type DownloadFailure = {
   label?: string;
+  name?: string;
   reason?: string;
 };
 
@@ -450,6 +451,7 @@ export type DownloadStatus =
       sources: string[];
       filesDone: number;
       totalFiles: number;
+      failedCount: number;
       attempt?: number;
     }
   | { status: 'error'; failedFiles: DownloadFailure[] }

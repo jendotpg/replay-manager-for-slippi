@@ -48,7 +48,7 @@ type BeamerWave = {
   totalBytes: number;
   doneBytes: number;
   unknown: number;
-  failures: Map<string, { label: string; reason: string }>;
+  failures: Map<string, { label: string; name: string; reason: string }>;
   cancelled: boolean;
 };
 
@@ -143,6 +143,7 @@ const sendStatus = (force = false) => {
     sources,
     filesDone: wave.doneFiles,
     totalFiles: wave.totalFiles,
+    failedCount: wave.failures.size,
     attempt:
       running && running.job.currentFileAttempts > 1
         ? running.job.currentFileAttempts
@@ -206,11 +207,12 @@ const settle = (job: Job, outcome: JobOutcome) => {
   wave.doneFiles += 1;
   wave.doneBytes += Math.max(job.request.size ?? 0, 0);
   if (outcome.kind === 'done') {
-    wave.failures.delete(job.request.beamerId);
+    wave.failures.delete(`${job.request.beamerId}|${job.request.name}`);
     beamerDirWritten.emit('dirWritten', job.request.dest);
   } else if (outcome.kind === 'failed') {
-    wave.failures.set(job.request.beamerId, {
+    wave.failures.set(`${job.request.beamerId}|${job.request.name}`, {
       label: job.request.beamerName,
+      name: job.request.name,
       reason: outcome.failure.message,
     });
     if (outcome.failure.unreachable) {
