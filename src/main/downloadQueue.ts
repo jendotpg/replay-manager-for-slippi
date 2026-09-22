@@ -1,7 +1,12 @@
 import path from 'path';
 import { mkdir } from 'fs/promises';
 import { EventEmitter } from 'events';
-import { BeamerFile, DownloadFailure, DownloadStatus } from '../common/types';
+import {
+  BeamerFile,
+  DownloadFailure,
+  DownloadSource,
+  DownloadStatus,
+} from '../common/types';
 import {
   DownloadError,
   downloadFile,
@@ -114,18 +119,20 @@ const sendStatus = (force = false) => {
   }
   lastSentAt = now;
 
-  const sources: string[] = [];
+  const sources: DownloadSource[] = [];
   const seen = new Set<string>();
-  const addSource = (name: string) => {
-    if (!seen.has(name)) {
-      seen.add(name);
-      sources.push(name);
+  const addSource = (beamerId: string, label: string) => {
+    if (!seen.has(beamerId)) {
+      seen.add(beamerId);
+      sources.push({ beamerId, label });
     }
   };
   if (running) {
-    addSource(running.job.request.beamerName);
+    addSource(running.job.request.beamerId, running.job.request.beamerName);
   }
-  jobs.forEach((job) => addSource(job.request.beamerName));
+  jobs.forEach((job) =>
+    addSource(job.request.beamerId, job.request.beamerName),
+  );
 
   let progress = 0;
   const activeBytes = running ? running.job.written : 0;

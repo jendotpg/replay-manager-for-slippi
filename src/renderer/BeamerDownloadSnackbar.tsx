@@ -104,7 +104,7 @@ export default function BeamerDownloadSnackbar({
   let content = null;
   if (status.status === 'downloading') {
     const { filesDone, totalFiles, failedCount, attempt } = status;
-    const names = status.sources;
+    const names = status.sources.map((source) => source.label);
     const visible = names.slice(0, MAX_VISIBLE_SOURCES).join(', ');
     const overflow = names.length - MAX_VISIBLE_SOURCES;
     const succeeded = filesDone - failedCount;

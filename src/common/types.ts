@@ -442,13 +442,18 @@ export type DownloadFailure = {
   reason: string;
 };
 
+export type DownloadSource = {
+  beamerId: string;
+  label: string;
+};
+
 export type DownloadStatus =
   | { status: 'idle' }
   | {
       status: 'downloading';
       progress: number;
       currentFile: string;
-      sources: string[];
+      sources: DownloadSource[];
       filesDone: number;
       totalFiles: number;
       failedCount: number;

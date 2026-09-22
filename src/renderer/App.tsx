@@ -2589,7 +2589,9 @@ function Hello() {
                       downloading={
                         downloadingPreviousReplay ||
                         (beamerDownloadStatus.status === 'downloading' &&
-                          beamerDownloadStatus.sources.includes(dirLabel))
+                          beamerDownloadStatus.sources.some(
+                            (source) => source.beamerId === selectedBeamer,
+                          ))
                       }
                       onDownload={downloadPreviousReplay}
                     />
