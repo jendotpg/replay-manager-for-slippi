@@ -967,7 +967,7 @@ async function runSubscriptionSweep() {
 
 function scheduleSubscriptionSweep() {
   if (!sweepTimer) {
-    return; 
+    return;
   }
   if (sweepInFlight) {
     sweepQueued = true;
@@ -993,7 +993,7 @@ function stopSubscriptionSweep() {
 }
 
 const onBeamerEvent = (event: BeamerEvent) => {
-  scheduleSubscriptionSweep(); 
+  scheduleSubscriptionSweep();
   refreshBeamerForEvent(event.beamerId).catch(() => {});
   if (event.event === 'game_finished' && pullWanted(event.beamerId)) {
     const beamer = liveBeamers.get(event.beamerId);
