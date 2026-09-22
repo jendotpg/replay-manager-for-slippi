@@ -287,34 +287,16 @@ export default function setupIPCs(
     const failedFiles: DownloadFailure[] = [];
     const total = slpUrls.length;
     let completed = 0;
-    const pending: string[] = [];
 
-    // a deeplink has no good label - just use the origin
-    const sourceOf = (url: string) => {
-      try {
-        return new URL(url).origin;
-      } catch {
-        return url;
-      }
-    };
-
-    const send = (fileName: string, attempt?: number) => {
-      const sources: string[] = [];
-      pending.forEach((url) => {
-        const source = sourceOf(url);
-        if (!sources.includes(source)) {
-          sources.push(source);
-        }
-      });
+    const send = (fileName: string) => {
       slpDownloadStatus = {
         status: 'downloading',
-        sources,
+        sources: [],
         progress: Math.round((completed / total) * 100),
         currentFile: fileName,
         filesDone: completed,
         totalFiles: total,
         failedCount: failedFiles.length,
-        attempt: attempt !== undefined && attempt > 1 ? attempt : undefined,
       };
       if (mainWindow) {
         mainWindow.webContents.send('slp-download-status', slpDownloadStatus);
@@ -326,16 +308,11 @@ export default function setupIPCs(
         const fileName = path.basename(new URL(url).pathname);
         const dest = path.join(protocolLoadFullPath, fileName);
         try {
-          await downloadFile(url, dest, {
-            onAttempt: (n) => {
-              send(fileName, n);
-            },
-          });
+          await downloadFile(url, dest);
         } catch (err) {
           failedFiles.push({ label: url });
         } finally {
           completed += 1;
-          pending.splice(pending.indexOf(url), 1);
           send(fileName);
         }
       }),
