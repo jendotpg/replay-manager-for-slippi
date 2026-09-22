@@ -28,7 +28,7 @@ import {
   Refresh,
   Warning,
 } from '@mui/icons-material';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BeamerGame,
   BeamerFleet,
@@ -50,10 +50,6 @@ type BeamerBusy = {
   kind: 'copy' | 'refresh' | 'subscribe' | 'reset';
   target: string; // 'all' or a beamer id
 };
-
-function beamerKey(beamer: Beamer) {
-  return beamer.beamerId;
-}
 
 function warningsFor(beamer: Beamer) {
   return beamer.warnings.join(', ');
@@ -94,7 +90,7 @@ function BeamersTooltip({
       {beamers.map((beamer) => {
         const warnings = showWarnings ? warningsFor(beamer) : '';
         return (
-          <Typography key={beamerKey(beamer)} variant="caption">
+          <Typography key={beamer.beamerId} variant="caption">
             {warnings ? `${beamer.label} — ${warnings}` : beamer.label}
           </Typography>
         );
@@ -179,50 +175,27 @@ function PortCell({
   );
 }
 
-const secsClock = (() => {
-  let now = Date.now();
-  let interval: ReturnType<typeof setInterval> | undefined;
-  const listeners = new Set<() => void>();
-  return {
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      if (interval === undefined) {
-        now = Date.now();
-        interval = setInterval(() => {
-          now = Date.now();
-          listeners.forEach((notify) => notify());
-        }, 1000);
-      }
-      return () => {
-        listeners.delete(listener);
-        if (listeners.size === 0 && interval !== undefined) {
-          clearInterval(interval);
-          interval = undefined;
-        }
-      };
-    },
-    getNow: () => now,
-  };
-})();
-
-function useSecsClockNow() {
-  return useSyncExternalStore(secsClock.subscribe, secsClock.getNow);
-}
-
 function LiveSecsText({ reported }: { reported: number | undefined }) {
-  const now = useSecsClockNow();
-  const [baseline, setBaseline] = useState<{ secs: number; at: number }>();
+  const [now, setNow] = useState(() => Date.now());
+  const baseline = useRef<{ secs: number; at: number } | undefined>(undefined);
 
   useEffect(() => {
-    setBaseline(
-      reported == null ? undefined : { secs: reported, at: Date.now() },
-    );
-  }, [reported]);
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const secs =
-    reported == null || !baseline || baseline.secs !== reported
-      ? reported
-      : baseline.secs + Math.max(0, Math.floor((now - baseline.at) / 1000));
+  let secs: number | undefined;
+  if (reported == null) {
+    baseline.current = undefined;
+  } else {
+    const previous = baseline.current;
+    if (!previous || previous.secs !== reported) {
+      baseline.current = { secs: reported, at: Date.now() };
+      secs = reported;
+    } else {
+      secs = previous.secs + Math.floor((now - previous.at) / 1000);
+    }
+  }
 
   return (
     <Typography
@@ -378,11 +351,11 @@ export default function BeamerDialog({
   };
 
   const toggleSubscribe = async (beamer: LabeledBeamer) => {
-    setBusyWith({ kind: 'subscribe', target: beamerKey(beamer) });
+    setBusyWith({ kind: 'subscribe', target: beamer.beamerId });
     setError('');
     try {
       await window.electron.setBeamerSubscribed(
-        beamerKey(beamer),
+        beamer.beamerId,
         !beamer.subscribed,
       );
     } catch (e) {
@@ -405,10 +378,10 @@ export default function BeamerDialog({
   };
 
   const reset = async (beamer: Beamer) => {
-    setBusyWith({ kind: 'reset', target: beamerKey(beamer) });
+    setBusyWith({ kind: 'reset', target: beamer.beamerId });
     setError('');
     try {
-      await window.electron.resetBeamer(beamerKey(beamer));
+      await window.electron.resetBeamer(beamer.beamerId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -605,7 +578,7 @@ export default function BeamerDialog({
                   let subscribeIcon = (
                     <NotificationsNone color="action" fontSize="small" />
                   );
-                  if (busyTarget('subscribe', beamerKey(beamer))) {
+                  if (busyTarget('subscribe', beamer.beamerId)) {
                     subscribeIcon = <CircularProgress size="20px" />;
                   } else if (beamer.subscribed) {
                     subscribeIcon = (
@@ -616,10 +589,10 @@ export default function BeamerDialog({
                   return (
                     <TableRow
                       hover
-                      key={beamerKey(beamer)}
+                      key={beamer.beamerId}
                       onClick={() => {
                         if (!busyKind('copy')) {
-                          select(beamerKey(beamer));
+                          select(beamer.beamerId);
                         }
                       }}
                       style={{
@@ -631,7 +604,7 @@ export default function BeamerDialog({
                           <IconButton
                             disabled={
                               busyKind('copy') ||
-                              busyTarget('subscribe', beamerKey(beamer))
+                              busyTarget('subscribe', beamer.beamerId)
                             }
                             onClick={(event) => {
                               event.stopPropagation();
@@ -654,7 +627,7 @@ export default function BeamerDialog({
                               {beamer.label}
                             </Typography>
                           </Tooltip>
-                          {busyTarget('copy', beamerKey(beamer)) && (
+                          {busyTarget('copy', beamer.beamerId) && (
                             <CircularProgress size="16px" />
                           )}
                         </Stack>
@@ -693,10 +666,10 @@ export default function BeamerDialog({
                               }
                               onClick={(event) => {
                                 event.stopPropagation();
-                                refresh(beamerKey(beamer));
+                                refresh(beamer.beamerId);
                               }}
                             >
-                              {busyTarget('refresh', beamerKey(beamer)) ? (
+                              {busyTarget('refresh', beamer.beamerId) ? (
                                 <CircularProgress size="24px" />
                               ) : (
                                 <Refresh />
@@ -715,7 +688,7 @@ export default function BeamerDialog({
                                 setConfirmingReset(beamer);
                               }}
                             >
-                              {busyTarget('reset', beamerKey(beamer)) ? (
+                              {busyTarget('reset', beamer.beamerId) ? (
                                 <CircularProgress size="24px" />
                               ) : (
                                 <DeleteForever color="error" />
