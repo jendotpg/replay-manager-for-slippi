@@ -257,9 +257,7 @@ function ResetConfirmDialog({
           </DialogContentText>
         )}
         <DialogContentText marginTop="8px" variant="body2">
-          Anything already copied to this computer is kept. If a game is being
-          played right now, let it finish first - the beamer has nowhere to put
-          a replay it is midway through writing.
+          If a game is being played right now, let it finish first.
         </DialogContentText>
       </DialogContent>
       <DialogActions>
