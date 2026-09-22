@@ -8,6 +8,23 @@ A [Beamer](https://github.com/jendotpg/slippi-beamer) is a microprocessor attach
 
 In short: TOs can use Beamers to report a set with only a station number - no need to send a flash drive back and forth.
 
+### Why not Nintendont FTP / Slippi Console Mirror / $SOME_OTHER_OPTION
+
+TL;DR: NYC Melee struggles with the current USB-handoff workflow and this is the solution I was the right developer for. A fork of Nintendont could function very similarly - it would be structurally less safe and I don't feel confident in my ability to build and stress-test such a fork. I eagerly invite someone else to do so ^\_^
+
+Beamer was built from the ground up with a few requirements:
+
+- Setup has to be dead simple after configuring once (in particular, we don't want to require turning on and configuring a PC at tournament start - it's a lot to ask from our setup team who don't bring their own computers)
+- We often have multiple TOs reporting sets off of a shared section of setups
+- TOs report off of laptops that hibernate often and unpredictably
+- Wifi goes down sometimes - we need to be able to report using traditional workflows when that happens
+- Under no circumstances should replay issues **EVER** affect gameplay for our players
+- Failures must be LOUD - TOs need to know where replays aren't functioning correctly
+
+Slippi console mirror is not an option at all without one central, always on computer - against our setup goals (and I think unrealistic for nearly every laptop-TO'd event for the same reason). Nintendont FTP could almost certainly be extended to meet these goals, but I personally am not comfortable writing Wii software that ensures (a) gameplay isn't affected and (b) failure is easily visible to TOs. Having a separate piece of hardware handle replay transmission trivially guarantees that gameplay won't be affected\*. Complete control over its firmware, along with the bundled screen and LED, let me make sure the failures are loud to TOs both visibly and over the network. The "replays served on demand with timing hints issued over UDP" architecture lets multiple TOs connect and disconnect from a section as they please - certainly possible with FTP, but opening random sockets on command on the same processor that's serving a quasi-real time service makes me uncomfortable. Finally, the HTTP API lets us send status information (like game liveness and players) on demand - again, possible with a Nintendont fork but requiring on demand TCP networking during quasi-real time computation.
+
+\*(Of course, a big enough USB volume is actually known to affect gameplay. It's likely that other details of the USB volume can too. I'm not the right dev for fixing that type of thing. The best I can do is guarantee that gameplay won't be affected against the baseline of the "USB handoff workflow".)
+
 ### The network contract
 
 | Method             | Path                 | What it does                                                  |
