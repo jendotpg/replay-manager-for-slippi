@@ -130,9 +130,9 @@ const electronHandler = {
   getReportedSubdirs: (): Promise<string[]> =>
     ipcRenderer.invoke('getReportedSubdirs'),
   getUndoSubdir: (): Promise<string> => ipcRenderer.invoke('getUndoSubdir'),
-  setUndoSubdir: (undoSubdir: string): Promise<string> =>
+  setUndoSubdir: (undoSubdir: string): Promise<ReplayDir | null> =>
     ipcRenderer.invoke('setUndoSubdir', undoSubdir),
-  deleteUndoSrcDst: (): Promise<string> =>
+  deleteUndoSrcDst: (): Promise<ReplayDir | null> =>
     ipcRenderer.invoke('deleteUndoSrcDst'),
   getCopyDir: (): Promise<string> => ipcRenderer.invoke('getCopyDir'),
   chooseCopyDir: (): Promise<string> => ipcRenderer.invoke('chooseCopyDir'),

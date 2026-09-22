@@ -245,10 +245,12 @@ export default function setupIPCs(
   let replayDirs: ReplayDir[] = [];
   const knownUsbs = new Map<string, boolean>();
 
+  function topReplayDir() {
+    return replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
+  }
+
   function announceReplayDir() {
-    const top =
-      replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
-    mainWindow.webContents.send('replay-dir', top);
+    mainWindow.webContents.send('replay-dir', topReplayDir());
   }
 
   function addReplayDir(entry: ReplayDir) {
@@ -842,62 +844,69 @@ export default function setupIPCs(
   ipcMain.handle('getUndoSubdir', () => path.basename(undoSrcFullPath));
 
   ipcMain.removeHandler('setUndoSubdir');
-  ipcMain.handle('setUndoSubdir', async (event, newUndoSubdir: string) => {
-    if (newUndoSubdir === '') {
-      await rm(undoDstFullPath, { force: true, recursive: true });
+  ipcMain.handle(
+    'setUndoSubdir',
+    async (event, newUndoSubdir: string): Promise<ReplayDir | null> => {
+      if (newUndoSubdir === '') {
+        await rm(undoDstFullPath, { force: true, recursive: true });
 
-      undoSrcFullPath = '';
-      return replayDirs.length > 0 ? replayDirs[replayDirs.length - 1].dir : '';
-    }
+        undoSrcFullPath = '';
+        return topReplayDir();
+      }
 
-    await mkdir(undoDstFullPath, { recursive: true });
-    const newUndoSrcFullPath = path.join(copyDir, newUndoSubdir);
-    if (newUndoSrcFullPath.endsWith('.zip')) {
-      try {
-        const zip = await yauzl.open(newUndoSrcFullPath);
+      await mkdir(undoDstFullPath, { recursive: true });
+      const newUndoSrcFullPath = path.join(copyDir, newUndoSubdir);
+      if (newUndoSrcFullPath.endsWith('.zip')) {
         try {
-          // eslint-disable-next-line no-restricted-syntax
-          for await (const entry of zip) {
-            if (entry.filename.endsWith('.slp')) {
-              const readStream = await entry.openReadStream();
-              const writeStream = createWriteStream(
-                path.join(undoDstFullPath, entry.filename),
-              );
-              await pipeline(readStream, writeStream);
+          const zip = await yauzl.open(newUndoSrcFullPath);
+          try {
+            // eslint-disable-next-line no-restricted-syntax
+            for await (const entry of zip) {
+              if (entry.filename.endsWith('.slp')) {
+                const readStream = await entry.openReadStream();
+                const writeStream = createWriteStream(
+                  path.join(undoDstFullPath, entry.filename),
+                );
+                await pipeline(readStream, writeStream);
+              }
             }
+          } finally {
+            zip.close();
           }
-        } finally {
-          zip.close();
+        } catch (e: any) {
+          await rm(undoDstFullPath, { force: true, recursive: true });
+          throw e;
         }
-      } catch (e: any) {
-        await rm(undoDstFullPath, { force: true, recursive: true });
-        throw e;
-      }
-    } else {
-      const undoSlpNames = (await readdir(newUndoSrcFullPath)).filter((name) =>
-        name.endsWith('.slp'),
-      );
-      try {
-        await Promise.all(
-          undoSlpNames.map(async (undoSlpName) => {
-            const srcSlpFullPath = path.join(newUndoSrcFullPath, undoSlpName);
-            const dstSlpFullPath = path.join(undoDstFullPath, undoSlpName);
-            return copyFile(srcSlpFullPath, dstSlpFullPath);
-          }),
+      } else {
+        const undoSlpNames = (await readdir(newUndoSrcFullPath)).filter(
+          (name) => name.endsWith('.slp'),
         );
-      } catch (e: any) {
-        await rm(undoDstFullPath, { force: true, recursive: true });
-        throw e;
+        try {
+          await Promise.all(
+            undoSlpNames.map(async (undoSlpName) => {
+              const srcSlpFullPath = path.join(newUndoSrcFullPath, undoSlpName);
+              const dstSlpFullPath = path.join(undoDstFullPath, undoSlpName);
+              return copyFile(srcSlpFullPath, dstSlpFullPath);
+            }),
+          );
+        } catch (e: any) {
+          await rm(undoDstFullPath, { force: true, recursive: true });
+          throw e;
+        }
       }
-    }
 
-    undoSrcFullPath = newUndoSrcFullPath;
-    return undoDstFullPath;
-  });
+      undoSrcFullPath = newUndoSrcFullPath;
+      return {
+        dir: undoDstFullPath,
+        display: undoDstFullPath,
+        dirType: 'local',
+      };
+    },
+  );
 
   // host delete
   ipcMain.removeHandler('deleteUndoSrcDst');
-  ipcMain.handle('deleteUndoSrcDst', async () => {
+  ipcMain.handle('deleteUndoSrcDst', async (): Promise<ReplayDir | null> => {
     if (!undoSrcFullPath) {
       throw new Error('no undo subdir');
     }
@@ -913,7 +922,7 @@ export default function setupIPCs(
     await rm(undoSrcFullPath, { force: true, recursive: true });
     undoSrcFullPath = '';
 
-    return replayDirs.length > 0 ? replayDirs[replayDirs.length - 1].dir : '';
+    return topReplayDir();
   });
 
   ipcMain.removeHandler('getCopyDir');
