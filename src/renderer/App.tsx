@@ -228,23 +228,6 @@ function applyAllReplaysSelected(allReplays: Replay[], selected: boolean) {
     });
 }
 
-function applyKeptReplaysSelected(
-  currentReplays: Replay[],
-  newReplays: Replay[],
-) {
-  const currentSelection = new Map(
-    currentReplays.map((replay) => [replay.fileName, replay.selected]),
-  );
-  newReplays.forEach((replay) => {
-    const currentSelected = currentSelection.get(replay.fileName);
-    if (currentSelected !== undefined) {
-      replay.selected = currentSelected;
-    } else {
-      replay.selected = replay.invalidReasons.length === 0;
-    }
-  });
-}
-
 function Hello() {
   const [slpDownloadStatus, setSlpDownloadStatus] = useState<SlpDownloadStatus>(
     {
@@ -676,6 +659,14 @@ function Hello() {
   useEffect(() => {
     replaysRef.current = replays;
   }, [replays]);
+  const batchActivesRef = useRef(batchActives);
+  useEffect(() => {
+    batchActivesRef.current = batchActives;
+  }, [batchActives]);
+  const overridesRef = useRef(overrides);
+  useEffect(() => {
+    overridesRef.current = overrides;
+  }, [overrides]);
   const [replayRefs, setReplayRefs] = useState<RefObject<HTMLDivElement>[]>([]);
   const [invalidReplays, setInvalidReplays] = useState<InvalidReplay[]>([]);
   const [gettingReplays, setGettingReplays] = useState(false);
@@ -824,10 +815,77 @@ function Hello() {
         newReplays = res.replays;
         newInvalidReplays = res.invalidReplays;
         if (res.dir === walkedDirRef.current) {
-          applyKeptReplaysSelected(replaysRef.current, newReplays);
-        } else {
-          applyAllReplaysSelected(newReplays, true);
+          const keptReplays = new Map(
+            replaysRef.current.map((replay) => [replay.fileName, replay]),
+          );
+          const addedReplays: Replay[] = [];
+          const mergedReplays = newReplays.map((replay) => {
+            const keptReplay = keptReplays.get(replay.fileName);
+            if (keptReplay) {
+              return keptReplay;
+            }
+            replay.selected = replay.invalidReasons.length === 0;
+            addedReplays.push(replay);
+            return replay;
+          });
+          const newBatchActives = getNewBatchActives(
+            mergedReplays.filter((replay) => replay.selected),
+          );
+          const newOverrides = Array.from(overridesRef.current) as [
+            PlayerOverrides,
+            PlayerOverrides,
+            PlayerOverrides,
+            PlayerOverrides,
+          ];
+          let overridesCleared = false;
+          for (let i = 0; i < 4; i += 1) {
+            if (
+              batchActivesRef.current[i].active &&
+              !newBatchActives[i].active
+            ) {
+              newOverrides[i] = {
+                displayName: '',
+                entrantId: 0,
+                participantId: 0,
+                prefix: '',
+                pronouns: '',
+              };
+              overridesCleared = true;
+            }
+          }
+          addedReplays
+            .filter((replay) => replay.selected)
+            .forEach((replay) => {
+              replay.players.forEach((player, i) => {
+                player.playerOverrides = { ...newOverrides[i] };
+              });
+            });
+          setBatchActives(newBatchActives);
+          if (overridesCleared) {
+            setOverrides(newOverrides);
+          }
+          setAllReplaysSelected(
+            mergedReplays.every(
+              (replay) => replay.selected || replay.invalidReasons.length > 0,
+            ),
+          );
+          setReplayLoadCount(res.replayLoadCount);
+          setDirExists(true);
+          setReplays(mergedReplays);
+          setInvalidReplays(newInvalidReplays);
+          if (newInvalidReplays.length > 0) {
+            showErrorDialog(
+              newInvalidReplays.map(
+                (invalidReplay) =>
+                  `${invalidReplay.fileName}: ${invalidReplay.invalidReason}`,
+              ),
+            );
+          }
+          setReplayRefs(vlerkMode ? mergedReplays.map(() => createRef()) : []);
+          setGettingReplays(false);
+          return;
         }
+        applyAllReplaysSelected(newReplays, true);
         walkedDirRef.current = res.dir;
         setReplayLoadCount(res.replayLoadCount);
         setDirExists(true);
