@@ -22,6 +22,7 @@ import {
   DownloadFailure,
 } from '../common/types';
 import { assertInteger } from '../common/asserts';
+import { maxGamesFromIndexCeiling } from '../common/constants';
 import { hasCompleteFile } from './download';
 import {
   beamerDirWritten,
@@ -715,7 +716,7 @@ const beamerLabel = (beamerId: string) =>
   rememberedBeamers.get(beamerId)?.name || beamerId || undefined;
 
 const subscriptions = {
-  subscribed: new Map<string, string>(), //stationId -> origin
+  subscribed: new Map<string, string>(), // stationId -> origin
   unsubscribed: new Set<string>(), // unsubscribes have session lifetimes
 };
 
@@ -1215,12 +1216,10 @@ export function resetAllBeamers() {
   });
 }
 
-const MAX_GAMES_FROM_INDEX_CEILING = 16;
-
 export function clampMaxGamesFromIndex(newMaxGamesFromIndex: number) {
   return Math.min(
     Math.max(assertInteger(newMaxGamesFromIndex), 1),
-    MAX_GAMES_FROM_INDEX_CEILING,
+    maxGamesFromIndexCeiling,
   );
 }
 

@@ -41,6 +41,7 @@ import {
   beamerDownWarnings,
   beamerHealthColor,
   characterNames,
+  maxGamesFromIndexCeiling,
   unknownCharacterId,
 } from '../common/constants';
 import getCharacterIcon from './getCharacterIcon';
@@ -101,8 +102,6 @@ function BeamersTooltip({
     </Stack>
   );
 }
-
-const MAX_GAMES_FROM_INDEX = 16; // NUM-REPLAYS-SERVED ceiling
 
 function liveLightColor(beamer: Beamer) {
   const down =
@@ -472,7 +471,7 @@ export default function BeamerDialog({
                 <TextField
                   inputProps={{
                     min: 1,
-                    max: MAX_GAMES_FROM_INDEX,
+                    max: maxGamesFromIndexCeiling,
                     style: { textAlign: 'right' },
                   }}
                   onChange={async (event) => {
@@ -482,7 +481,7 @@ export default function BeamerDialog({
                     }
                     const clamped = Math.min(
                       Math.max(parsed, 1),
-                      MAX_GAMES_FROM_INDEX,
+                      maxGamesFromIndexCeiling,
                     );
                     setMaxGamesFromIndex(clamped);
                     await window.electron.setMaxGamesFromIndex(clamped);
