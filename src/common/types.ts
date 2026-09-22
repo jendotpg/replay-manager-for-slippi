@@ -625,6 +625,7 @@ export type Beamer = {
   host: string;
   beamerId: string;
   beamerName: string;
+  firmwareVersion?: string;
   replayCount?: number;
   replayCap?: number;
   health: BeamerHealth;
@@ -669,6 +670,7 @@ export type BeamerStatusBody = {
   schema: number;
   station_id: string;
   station_name?: string;
+  firmware_version?: string;
   replay_count?: number;
   replay_cap?: number;
   health?: BeamerHealth;

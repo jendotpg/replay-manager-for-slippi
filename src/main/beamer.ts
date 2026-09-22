@@ -115,6 +115,7 @@ function beamerFromStatus(
     ...base,
     beamerId: asString(status.station_id),
     beamerName: asString(status.station_name),
+    firmwareVersion: asString(status.firmware_version) || undefined,
     replayCount: asCount(status.replay_count),
     replayCap: asCount(status.replay_cap),
     health: asHealth(status.health),

@@ -23,6 +23,7 @@ import {
 import {
   DeleteForever,
   ErrorOutline,
+  Memory,
   NotificationsActive,
   NotificationsNone,
   Refresh,
@@ -419,6 +420,10 @@ export default function BeamerDialog({
   const warningBeamers = fleet.beamers.filter(
     (beamer) => beamer.health === 'warn',
   );
+  const firmwareVersions = new Set(
+    fleet.beamers.map((beamer) => beamer.firmwareVersion ?? 'not reported'),
+  );
+  const firmwareMismatch = firmwareVersions.size > 1;
 
   return (
     <>
@@ -504,6 +509,21 @@ export default function BeamerDialog({
                   />
                 </Tooltip>
               )}
+              {firmwareMismatch && (
+                <Tooltip
+                  arrow
+                  title={`Firmware versions in use: ${[...firmwareVersions]
+                    .sort()
+                    .join(', ')}`}
+                >
+                  <Chip
+                    color="warning"
+                    icon={<Memory />}
+                    label="Firmware mismatch"
+                    size="small"
+                  />
+                </Tooltip>
+              )}
             </Stack>
             {fleet.beamers.length > 0 && (
               <Stack alignItems="center" direction="row" gap="4px">
@@ -585,7 +605,9 @@ export default function BeamerDialog({
                       <NotificationsActive color="action" fontSize="small" />
                     );
                   }
-                  const beamerTitle = `${beamer.label} · ${beamer.beamerId}`;
+                  const beamerTitle = `${beamer.label} - ${beamer.beamerId} - ${
+                      beamer.firmwareVersion ?? 'unkown firmware'
+                    }`;
                   return (
                     <TableRow
                       hover
