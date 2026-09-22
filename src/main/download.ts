@@ -104,6 +104,24 @@ async function discard(file: string) {
   }
 }
 
+// abortable :)
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    let timer: NodeJS.Timeout;
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+  });
+}
+
 // see RFC 7231 Retry-After
 function parseRetryAfter(value: string | null): number | undefined {
   if (value === null) {
@@ -307,9 +325,7 @@ export async function downloadFile(
         failure.retryAfterMs ??
         BACKOFF_MS[Math.min(attempts - 1, BACKOFF_MS.length - 1)];
       // eslint-disable-next-line no-await-in-loop
-      await new Promise((resolve) => {
-        setTimeout(resolve, backoff);
-      });
+      await sleep(backoff, options.signal);
       if (options.signal?.aborted) {
         throw new DownloadError('cancelled', { retryable: false });
       }

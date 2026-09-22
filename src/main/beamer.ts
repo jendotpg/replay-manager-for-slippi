@@ -26,11 +26,10 @@ import { maxGamesFromIndexCeiling } from '../common/constants';
 import { hasCompleteFile } from './download';
 import {
   beamerDirWritten,
-  enqueueBeamerDownload,
+  enqueueBeamerBackgroundPull,
   enqueueBeamerPull,
   initDownloadQueue,
   isBeamerDownloadPending,
-  prioritizeBeamer,
   recordBeamerPullFailure,
 } from './downloadQueue';
 
@@ -896,17 +895,14 @@ const onBeamerEvent = (event: BeamerEvent) => {
         if (!name || !url) {
           throw new Error('Ignoring replay that fails beamer sanitization.');
         }
-        enqueueBeamerDownload(
-          {
-            dest: beamerDirFor(beamerFullPath, event.beamerId),
-            name,
-            url,
-            size: event.replay.size,
-            beamerId: event.beamerId,
-            beamerName: label,
-          },
-          'low',
-        );
+        enqueueBeamerBackgroundPull({
+          dest: beamerDirFor(beamerFullPath, event.beamerId),
+          name,
+          url,
+          size: event.replay.size,
+          beamerId: event.beamerId,
+          beamerName: label,
+        });
       } catch {
         // unparseable replay url - it'll get fetched on select
       }
@@ -1054,8 +1050,6 @@ export async function selectBeamer(beamerId: string, maxGames: number) {
 
   await mkdir(dest, { recursive: true });
   rememberBeamer(indexBeamerId, origin, label);
-
-  prioritizeBeamer(indexBeamerId);
   enqueueBeamerPull(dest, files.slice(0, maxGames), indexBeamerId, label).catch(
     (e) => {
       recordBeamerPullFailure(indexBeamerId, label, e);
