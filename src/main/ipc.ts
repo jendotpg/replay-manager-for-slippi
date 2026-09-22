@@ -477,8 +477,6 @@ export default function setupIPCs(
       display,
       beamerId: indexBeamerId,
     } = await selectBeamer(beamerId, maxGamesFromIndex);
-    // remove any existing entry for this cache dir before adding the new one;
-    // see ReplayDir in ../common/types.ts for the shape being stored here
     removeReplayDirs((replayDir) => replayDir.dir === dest);
     addReplayDir({
       dir: dest,
