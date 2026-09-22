@@ -127,19 +127,6 @@ function beamerFromStatus(
   };
 }
 
-function unreportedBeamer(base: Pick<Beamer, 'address' | 'host'>): Beamer {
-  return {
-    ...base,
-    beamerId: '',
-    beamerName: '',
-    health: 'unknown',
-    warnings: [],
-    reported: false,
-    pingFails: 0,
-    game: null,
-  };
-}
-
 function isStatusBody(body: unknown): body is BeamerStatusBody {
   const record = asRecord(body);
   return Boolean(
@@ -622,8 +609,96 @@ const sendBeamerDownloadStatus = (status: DownloadStatus) => {
   }
 };
 
-const originByBeamer = new Map<string, string>();
-const nameByBeamer = new Map<string, string>();
+type BeamerBase = Pick<Beamer, 'address' | 'host'>;
+
+const createLiveBeamers = () => {
+  const byId = new Map<string, Beamer>();
+  const idByAddress = new Map<string, string>();
+
+  const findByAddress = (address: string) => {
+    const beamerId = idByAddress.get(address);
+    return beamerId ? byId.get(beamerId) : undefined;
+  };
+
+  const remove = (beamerId: string) => {
+    const removed = byId.get(beamerId);
+    byId.delete(beamerId);
+    if (removed && idByAddress.get(removed.address) === beamerId) {
+      idByAddress.delete(removed.address);
+    }
+  };
+
+  return {
+    upsert: (beamer: Beamer) => {
+      if (!beamer.beamerId) {
+        throw new Error('Refusing to key a beamer with no station id.');
+      }
+      const existing = byId.get(beamer.beamerId);
+      if (
+        existing &&
+        existing.address !== beamer.address &&
+        idByAddress.get(existing.address) === beamer.beamerId
+      ) {
+        idByAddress.delete(existing.address);
+      }
+      const previous = findByAddress(beamer.address);
+      if (previous && previous.beamerId !== beamer.beamerId) {
+        byId.delete(previous.beamerId);
+      }
+      idByAddress.set(beamer.address, beamer.beamerId);
+      byId.set(beamer.beamerId, beamer);
+    },
+    get: (beamerId: string) => byId.get(beamerId),
+    findByAddress,
+    findByHost: (host: string) =>
+      Array.from(byId.values()).filter((beamer) => beamer.host === host),
+    all: () => Array.from(byId.values()),
+    remove,
+    removeByAddress: (address: string) => {
+      const existing = findByAddress(address);
+      if (existing) {
+        remove(existing.beamerId);
+      }
+    },
+    markPingMiss: (base: BeamerBase) => {
+      const existing = findByAddress(base.address);
+      if (existing) {
+        byId.set(existing.beamerId, {
+          ...existing,
+          pingFails: existing.pingFails + 1,
+        });
+      }
+    },
+  };
+};
+
+const liveBeamers = createLiveBeamers();
+
+const createGhostList = () => {
+  // a ghost is a beamer seen on mDNS that doesn't meet the HTTP API...
+  const byAddress = new Map<string, BeamerBase>();
+
+  return {
+    upsert: (base: BeamerBase) => {
+      byAddress.set(base.address, base);
+    },
+    findByHost: (host: string) =>
+      Array.from(byAddress.values()).filter((base) => base.host === host),
+    all: () => Array.from(byAddress.values()),
+    remove: (address: string) => {
+      byAddress.delete(address);
+    },
+  };
+};
+
+const ghosts = createGhostList();
+
+const forgetBeamerAt = (address: string) => {
+  ghosts.remove(address);
+  liveBeamers.removeByAddress(address);
+};
+
+const rememberedBeamers = new Map<string, { origin: string; name: string }>();
 
 function rememberBeamer(
   beamerId: string,
@@ -633,30 +708,25 @@ function rememberBeamer(
   if (!beamerId || !name) {
     return;
   }
-  originByBeamer.set(beamerId, origin);
-  nameByBeamer.set(beamerId, name);
+  rememberedBeamers.set(beamerId, { origin, name });
 }
 
 const beamerLabel = (beamerId: string) =>
-  nameByBeamer.get(beamerId) || beamerId || undefined;
+  rememberedBeamers.get(beamerId)?.name || beamerId || undefined;
 
-const beamers = new Map<string, Beamer>();
-let beamerBrowse: BeamerBrowseHandle | null = null;
-let beamerBrowseOpen = false; // the fleet dialog is holding the browser open
-let beamerFleetError = '';
+const subscriptions = {
+  subscribed: new Map<string, string>(), //stationId -> origin
+  unsubscribed: new Set<string>(), // unsubscribes have session lifetimes
+};
 
-const subscribedBeamers = new Map<string, string>();
 const isSubscribed = (beamer: Pick<Beamer, 'beamerId'>) =>
-  subscribedBeamers.has(beamer.beamerId);
-
-// unsubscribes only have session lifetimes
-const unsubscribed = new Set<string>();
+  subscriptions.subscribed.has(beamer.beamerId);
 
 function rememberBeamerSubscription(origin: string, beamer: Beamer) {
   if (!beamer.beamerId) {
     return;
   }
-  subscribedBeamers.set(beamer.beamerId, origin);
+  subscriptions.subscribed.set(beamer.beamerId, origin);
   rememberBeamer(beamer.beamerId, origin, beamer.beamerName);
 }
 
@@ -664,29 +734,34 @@ const autoSubscribeCandidate = (beamer: Beamer) =>
   autoSubscribeBeamers &&
   beamer.reported &&
   Boolean(beamer.beamerId) &&
-  !subscribedBeamers.has(beamer.beamerId) &&
-  !unsubscribed.has(beamer.beamerId);
+  !subscriptions.subscribed.has(beamer.beamerId) &&
+  !subscriptions.unsubscribed.has(beamer.beamerId);
+
+const browse = {
+  handle: null as BeamerBrowseHandle | null,
+  open: false,
+  error: '',
+};
 
 const listedBeamers = () =>
-  Array.from(beamers.values())
+  liveBeamers
+    .all()
     .filter(
       (beamer) =>
         beamer.reported && beamer.pingFails < PING_FAILS_BEFORE_OFFLINE,
     )
     .flatMap((beamer) => {
       const label = beamerLabel(beamer.beamerId);
-      if (!label) {
-        // no station id - not a real beamer, skip it.
-        return [];
-      }
-      return [{ ...beamer, subscribed: isSubscribed(beamer), label }];
+      return label
+        ? [{ ...beamer, subscribed: isSubscribed(beamer), label }]
+        : [];
     })
     .sort((a, b) => a.label.localeCompare(b.label));
 
 const buildBeamerFleet = (): BeamerFleet => ({
   beamers: listedBeamers(),
-  browsing: beamerBrowse !== null,
-  error: beamerFleetError,
+  browsing: browse.handle !== null,
+  error: browse.error,
 });
 
 const sendBeamerFleet = () => {
@@ -730,63 +805,33 @@ const pruneStaleReplaysFor = async (
   beamerDirWritten.emit('dirWritten', dest);
 };
 
-type BeamerBase = Pick<Beamer, 'address' | 'host'>;
-
-// one missed ping: bump the strike count, keep the last-known record
-const markPingMiss = (base: BeamerBase) => {
-  const existing = Array.from(beamers.values()).find(
-    (beamer) => beamer.address === base.address,
-  );
-  if (!existing) {
-    return;
-  }
-  beamers.set(existing.beamerId || existing.address, {
-    ...existing,
-    pingFails: existing.pingFails + 1,
-  });
-};
-
 const refreshBeamer = async (base: BeamerBase) => {
   const origin = toBeamerOrigin(base.address);
   let result: StatusResult;
   try {
     result = await getBeamerStatus(origin);
   } catch {
-    markPingMiss(base);
+    liveBeamers.markPingMiss(base);
     return;
   }
   const beamer =
-    result.kind === 'status'
-      ? beamerFromStatus(base, result.body)
-      : unreportedBeamer(base);
+    result.kind === 'status' ? beamerFromStatus(base, result.body) : null;
 
-  if (result.kind === 'status' && !beamer.beamerId) {
-    markPingMiss(base);
+  if (!beamer || !beamer.beamerId) {
+    liveBeamers.removeByAddress(base.address);
+    ghosts.upsert(base);
     return;
   }
 
-  const key = beamer.beamerId || base.address; // key by address until uuid is reported
   const previous =
-    (beamer.beamerId ? beamers.get(beamer.beamerId) : undefined) ||
-    beamers.get(base.address);
-  Array.from(beamers.entries()).forEach(([otherKey, other]) => {
-    if (otherKey !== key && other.beamerId === beamer.beamerId) {
-      beamers.delete(otherKey);
-    }
-  });
-  beamers.delete(base.address);
-  beamers.set(key, beamer);
+    liveBeamers.get(beamer.beamerId) ?? liveBeamers.findByAddress(base.address);
+  liveBeamers.upsert(beamer);
+  ghosts.remove(base.address);
 
-  if (beamer.beamerId) {
-    if (subscribedBeamers.has(beamer.beamerId)) {
-      subscribedBeamers.set(beamer.beamerId, origin);
-    }
-    rememberBeamer(
-      beamer.beamerId,
-      origin,
-      beamer.beamerName || beamer.beamerId,
-    );
+  if (subscriptions.subscribed.has(beamer.beamerId)) {
+    subscriptions.subscribed.set(beamer.beamerId, origin);
   }
+  rememberBeamer(beamer.beamerId, origin, beamer.beamerName || beamer.beamerId);
 
   if (autoSubscribeCandidate(beamer)) {
     rememberBeamerSubscription(origin, beamer);
@@ -800,10 +845,9 @@ const refreshBeamer = async (base: BeamerBase) => {
 };
 
 export async function refreshAllBeamers() {
-  const bases = Array.from(beamers.values()).map(({ address, host }) => ({
-    address,
-    host,
-  }));
+  const bases = [...liveBeamers.all(), ...ghosts.all()].map(
+    ({ address, host }) => ({ address, host }),
+  );
   await Promise.all(bases.map((base) => refreshBeamer(base)));
   sendBeamerFleet();
 }
@@ -812,7 +856,7 @@ let beamerEvents: BeamerEventsHandle | null = null;
 const statusRefreshInFlight = new Set<string>();
 
 const refreshBeamerForEvent = async (beamerId: string) => {
-  const beamer = beamers.get(beamerId);
+  const beamer = liveBeamers.get(beamerId);
   if (!beamer || statusRefreshInFlight.has(beamerId)) {
     return;
   }
@@ -829,16 +873,16 @@ const refreshBeamerForEvent = async (beamerId: string) => {
 };
 
 const pullWanted = (beamerId: string) =>
-  subscribedBeamers.has(beamerId) ||
-  (autoSubscribeBeamers && !unsubscribed.has(beamerId));
+  subscriptions.subscribed.has(beamerId) ||
+  (autoSubscribeBeamers && !subscriptions.unsubscribed.has(beamerId));
 
 const onBeamerEvent = (event: BeamerEvent) => {
   refreshBeamerForEvent(event.beamerId).catch(() => {});
   if (event.event === 'game_finished' && pullWanted(event.beamerId)) {
-    const beamer = beamers.get(event.beamerId);
+    const beamer = liveBeamers.get(event.beamerId);
     const origin =
-      subscribedBeamers.get(event.beamerId) ||
-      originByBeamer.get(event.beamerId) ||
+      subscriptions.subscribed.get(event.beamerId) ||
+      rememberedBeamers.get(event.beamerId)?.origin ||
       (beamer ? toBeamerOrigin(beamer.address) : '');
     if (origin) {
       try {
@@ -887,19 +931,17 @@ const stopBeamerEvents = () => {
 };
 
 const startBeamerBrowser = () => {
-  if (beamerBrowse) {
+  if (browse.handle) {
     return;
   }
-  beamerFleetError = '';
-  beamerBrowse = browseForBeamers({
+  browse.error = '';
+  browse.handle = browseForBeamers({
     onFound: (base) => {
-      const existing = Array.from(beamers.entries()).find(
-        ([, beamer]) => beamer.address === base.address,
-      );
-      if (existing) {
-        beamers.set(existing[0], { ...existing[1], ...base });
+      const known = liveBeamers.findByAddress(base.address);
+      if (known) {
+        liveBeamers.upsert({ ...known, ...base });
       } else {
-        beamers.set(base.address, unreportedBeamer(base));
+        ghosts.upsert(base);
       }
       sendBeamerFleet();
       refreshBeamer(base)
@@ -909,23 +951,24 @@ const startBeamerBrowser = () => {
         });
     },
     onLost: (host) => {
-      const sharing = Array.from(beamers.entries()).filter(
-        ([, beamer]) => beamer.host === host,
-      );
+      const sharing = [
+        ...liveBeamers.findByHost(host),
+        ...ghosts.findByHost(host),
+      ];
       if (sharing.length === 0) {
         return;
       }
       if (sharing.length === 1) {
-        beamers.delete(sharing[0][0]);
+        forgetBeamerAt(sharing[0].address);
         sendBeamerFleet();
         return;
       }
       Promise.all(
-        sharing.map(async ([key, beamer]) => {
+        sharing.map(async (base) => {
           try {
-            await getBeamerStatus(toBeamerOrigin(beamer.address));
+            await getBeamerStatus(toBeamerOrigin(base.address));
           } catch {
-            beamers.delete(key);
+            forgetBeamerAt(base.address);
           }
         }),
       )
@@ -935,7 +978,7 @@ const startBeamerBrowser = () => {
         });
     },
     onError: (error) => {
-      beamerFleetError = error.message;
+      browse.error = error.message;
       sendBeamerFleet();
     },
   });
@@ -943,13 +986,13 @@ const startBeamerBrowser = () => {
 };
 
 const stopBeamerBrowser = () => {
-  beamerBrowse?.stop();
-  beamerBrowse = null;
-  beamerFleetError = '';
+  browse.handle?.stop();
+  browse.handle = null;
+  browse.error = '';
 };
 
 const beamerListenersWanted = () =>
-  beamerBrowseOpen || autoSubscribeBeamers || subscribedBeamers.size > 0;
+  browse.open || autoSubscribeBeamers || subscriptions.subscribed.size > 0;
 
 const updateBeamerListeners = () => {
   if (beamerListenersWanted()) {
@@ -962,12 +1005,12 @@ const updateBeamerListeners = () => {
 };
 
 const stopBrowse = () => {
-  beamerBrowseOpen = false;
+  browse.open = false;
   updateBeamerListeners();
 };
 
 export function startBeamerBrowse() {
-  beamerBrowseOpen = true;
+  browse.open = true;
   updateBeamerListeners();
   refreshAllBeamers().catch(() => {}); // truth-check the fleet the moment the dialog opens
   sendBeamerFleet();
@@ -982,10 +1025,10 @@ export function getBeamerFleet(): BeamerFleet {
 }
 
 export async function selectBeamer(beamerId: string, maxGames: number) {
-  const beamer = beamers.get(beamerId);
+  const beamer = liveBeamers.get(beamerId);
   const origin =
     (beamer ? toBeamerOrigin(beamer.address) : '') ||
-    originByBeamer.get(beamerId) ||
+    rememberedBeamers.get(beamerId)?.origin ||
     '';
   if (!origin) {
     throw new Error('That beamer is no longer advertising itself.');
@@ -1025,7 +1068,7 @@ export async function refreshFromBeamer(
   dir: string,
   maxGames: number,
 ) {
-  const origin = originByBeamer.get(beamerId);
+  const origin = rememberedBeamers.get(beamerId)?.origin;
   if (!origin) {
     throw new Error('Those replays are no longer loaded from a Beamer.');
   }
@@ -1039,7 +1082,7 @@ export async function refreshFromBeamer(
 }
 
 export async function getPreviousBeamerReplay(beamerId: string, dir: string) {
-  const origin = originByBeamer.get(beamerId);
+  const origin = rememberedBeamers.get(beamerId)?.origin;
   if (!origin) {
     return '';
   }
@@ -1055,7 +1098,7 @@ export async function downloadPreviousBeamerReplay(
   beamerId: string,
   dir: string,
 ) {
-  const origin = originByBeamer.get(beamerId);
+  const origin = rememberedBeamers.get(beamerId)?.origin;
   if (!origin) {
     throw new Error('Those replays are no longer loaded from a Beamer.');
   }
@@ -1074,18 +1117,18 @@ export async function downloadPreviousBeamerReplay(
 
 function setBeamerSubscription(beamerId: string, subscribed: boolean) {
   if (subscribed) {
-    const beamer = beamers.get(beamerId);
+    const beamer = liveBeamers.get(beamerId);
     if (beamer) {
       rememberBeamerSubscription(toBeamerOrigin(beamer.address), beamer);
     } else {
-      const remembered = originByBeamer.get(beamerId);
-      if (remembered) {
-        subscribedBeamers.set(beamerId, remembered);
+      const rememberedOrigin = rememberedBeamers.get(beamerId)?.origin;
+      if (rememberedOrigin) {
+        subscriptions.subscribed.set(beamerId, rememberedOrigin);
       }
     }
   } else {
-    unsubscribed.add(beamerId);
-    subscribedBeamers.delete(beamerId);
+    subscriptions.unsubscribed.add(beamerId);
+    subscriptions.subscribed.delete(beamerId);
   }
   updateBeamerListeners();
 }
@@ -1114,7 +1157,7 @@ export function setBeamersAutoSubscribe(on: boolean) {
 }
 
 export async function refreshBeamerStatus(beamerId: string) {
-  const existing = beamers.get(beamerId);
+  const existing = liveBeamers.get(beamerId);
   if (!existing) {
     throw new Error('That beamer is no longer advertising itself.');
   }
@@ -1154,7 +1197,7 @@ const runOverFleet = async (
 };
 
 export async function resetBeamer(beamerId: string) {
-  const existing = beamers.get(beamerId);
+  const existing = liveBeamers.get(beamerId);
   if (!existing) {
     throw new Error('That beamer is no longer advertising itself.');
   }
