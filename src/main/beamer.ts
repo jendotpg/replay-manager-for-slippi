@@ -757,7 +757,7 @@ const listedBeamers = () =>
         ? [{ ...beamer, subscribed: isSubscribed(beamer), label }]
         : [];
     })
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 
 const buildBeamerFleet = (): BeamerFleet => ({
   beamers: listedBeamers(),
