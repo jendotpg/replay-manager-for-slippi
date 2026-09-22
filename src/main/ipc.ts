@@ -310,7 +310,10 @@ export default function setupIPCs(
         try {
           await downloadFile(url, dest);
         } catch (err) {
-          failedFiles.push({ label: url });
+          failedFiles.push({
+            label: url,
+            reason: err instanceof Error ? err.message : String(err),
+          });
         } finally {
           completed += 1;
           send(fileName);

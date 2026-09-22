@@ -437,9 +437,9 @@ export enum WebSocketServerStatus {
 }
 
 export type DownloadFailure = {
-  label?: string;
-  name?: string;
-  reason?: string;
+  label: string;
+  fileName?: string;
+  reason: string;
 };
 
 export type DownloadStatus =

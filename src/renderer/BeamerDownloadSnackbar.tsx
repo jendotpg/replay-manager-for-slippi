@@ -182,11 +182,13 @@ export default function BeamerDownloadSnackbar({
         </Typography>
         {status.failedFiles.map((file) => (
           <Typography
-            key={`${file.label ?? ''}|${file.name ?? ''}|${file.reason ?? ''}`}
+            key={`${file.label}|${file.fileName ?? ''}|${file.reason}`}
             variant="body2"
             color="text.secondary"
           >
-            {[file.label, file.name, file.reason].filter(Boolean).join(' - ')}
+            {`${file.label}${file.fileName ? ` - ${file.fileName}` : ''}: ${
+              file.reason
+            }`}
           </Typography>
         ))}
       </Stack>

@@ -30,6 +30,7 @@ import {
   initDownloadQueue,
   isBeamerDownloadPending,
   prioritizeBeamer,
+  recordBeamerPullFailure,
 } from './downloadQueue';
 
 const INDEX_ATTEMPTS = 3;
@@ -1013,10 +1014,7 @@ export async function selectBeamer(beamerId: string, maxGames: number) {
   prioritizeBeamer(indexBeamerId);
   enqueueBeamerPull(dest, files.slice(0, maxGames), indexBeamerId, label).catch(
     (e) => {
-      sendBeamerDownloadStatus({
-        status: 'error',
-        failedFiles: [{ reason: e instanceof Error ? e.message : String(e) }],
-      });
+      recordBeamerPullFailure(indexBeamerId, label, e);
     },
   );
   return { dest, display: label, beamerId: indexBeamerId };

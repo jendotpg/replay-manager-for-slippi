@@ -60,11 +60,11 @@ export default function SlpDownloadModal({
           </DialogContentText>
           {status.failedFiles.map((file) => (
             <DialogContentText
-              key={`${file.label ?? ''}|${file.name ?? ''}|${
-                file.reason ?? ''
-              }`}
+              key={`${file.label}|${file.fileName ?? ''}|${file.reason}`}
             >
-              {[file.label, file.name, file.reason].filter(Boolean).join(' - ')}
+              {`${file.label}${file.fileName ? ` - ${file.fileName}` : ''}: ${
+                file.reason
+              }`}
             </DialogContentText>
           ))}
         </DialogContent>

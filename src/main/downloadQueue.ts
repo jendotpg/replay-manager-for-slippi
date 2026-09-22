@@ -1,7 +1,7 @@
 import path from 'path';
 import { mkdir } from 'fs/promises';
 import { EventEmitter } from 'events';
-import { BeamerFile, DownloadStatus } from '../common/types';
+import { BeamerFile, DownloadFailure, DownloadStatus } from '../common/types';
 import {
   DownloadError,
   downloadFile,
@@ -48,7 +48,7 @@ type BeamerWave = {
   totalBytes: number;
   doneBytes: number;
   unknown: number;
-  failures: Map<string, { label: string; name: string; reason: string }>;
+  failures: Map<string, DownloadFailure>;
   cancelled: boolean;
 };
 
@@ -212,7 +212,7 @@ const settle = (job: Job, outcome: JobOutcome) => {
   } else if (outcome.kind === 'failed') {
     wave.failures.set(`${job.request.beamerId}|${job.request.name}`, {
       label: job.request.beamerName,
-      name: job.request.name,
+      fileName: job.request.name,
       reason: outcome.failure.message,
     });
     if (outcome.failure.unreachable) {
@@ -461,6 +461,19 @@ export const enqueueBeamerPull = async (
     sendStatus(true);
     pump();
   });
+};
+
+export const recordBeamerPullFailure = (
+  beamerId: string,
+  beamerName: string,
+  error: unknown,
+) => {
+  wave.failures.set(`${beamerId}|`, {
+    label: beamerName,
+    reason: error instanceof Error ? error.message : String(error),
+  });
+  sendStatus(true);
+  finishWave();
 };
 
 export function prioritizeBeamer(beamerId: string) {
