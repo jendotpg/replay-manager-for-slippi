@@ -92,7 +92,7 @@ function BeamersTooltip({
         const warnings = showWarnings ? warningsFor(beamer) : '';
         return (
           <Typography key={beamer.beamerId} variant="caption">
-            {warnings ? `${beamer.label} — ${warnings}` : beamer.label}
+            {warnings ? `${beamer.label} - ${warnings}` : beamer.label}
           </Typography>
         );
       })}
@@ -258,7 +258,7 @@ function ResetConfirmDialog({
         )}
         <DialogContentText marginTop="8px" variant="body2">
           Anything already copied to this computer is kept. If a game is being
-          played right now, let it finish first — the beamer has nowhere to put
+          played right now, let it finish first - the beamer has nowhere to put
           a replay it is midway through writing.
         </DialogContentText>
       </DialogContent>

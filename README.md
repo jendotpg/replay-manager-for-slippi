@@ -157,7 +157,7 @@ tools/fake_beamer.py --name beamer-virtual-1 --port 8081 \
   --station-name "Fake 1"
 ```
 
-Run several on different ports for a fleet — the app honours the advertised port, so they coexist on one machine.
+Run several on different ports for a fleet.
 
 The game payload isn't canned: `--game` is peeked out of a real `.slp` by a port of `beamer::slp`.
 

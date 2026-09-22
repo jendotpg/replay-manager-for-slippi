@@ -648,7 +648,7 @@ export default function setupIPCs(
       }
       if (replayDirs[replayDirs.length - 1].dirType === 'beamer') {
         throw new Error(
-          'Beamer replays live in the cache — erase on the beamer or clear the cache in Settings.',
+          'Beamer replays live in the cache - erase on the beamer or clear the cache in Settings.',
         );
       }
     }
@@ -695,7 +695,7 @@ export default function setupIPCs(
         replayPaths.some((replayPath) => pathInside(replayPath, beamerRoot))
       ) {
         throw new Error(
-          'Beamer replays live in the cache — erase on the beamer or clear the cache in Settings.',
+          'Beamer replays live in the cache - erase on the beamer or clear the cache in Settings.',
         );
       }
       if (trashDir) {
