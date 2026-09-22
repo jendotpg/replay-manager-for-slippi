@@ -458,7 +458,7 @@ export default function setupIPCs(
   });
 
   let maxGamesFromIndex = store.get('maxGamesFromIndex', 4);
-  initBeamers(mainWindow, store.get('autoSubscribeBeamers', true));
+  initBeamers(mainWindow, store.get('autoSubscribeBeamers', false));
 
   beamerDirWritten.removeAllListeners('dirWritten');
   beamerDirWritten.on('dirWritten', (dest) => {
