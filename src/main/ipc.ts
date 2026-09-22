@@ -43,8 +43,8 @@ import {
   ReportSettings,
   SelectedSetChain,
   Set,
-  DownloadStatus,
-  DownloadFailure,
+  SlpDownloadStatus,
+  RequestFailure,
   StartggGame,
   StartggSet,
 } from '../common/types';
@@ -248,7 +248,7 @@ export default function setupIPCs(
   function announceReplayDir() {
     const top =
       replayDirs.length > 0 ? replayDirs[replayDirs.length - 1] : null;
-    mainWindow.webContents.send('replayDir', top);
+    mainWindow.webContents.send('replay-dir', top);
   }
 
   function addReplayDir(entry: ReplayDir) {
@@ -280,11 +280,11 @@ export default function setupIPCs(
     return current.dir;
   }
 
-  let slpDownloadStatus: DownloadStatus = { status: 'idle' };
+  let slpDownloadStatus: SlpDownloadStatus = { status: 'idle' };
 
-  async function handleProtocolLoadSLPs(slpUrls: string[]) {
+  async function handleProtocolLoadSlpUrls(slpUrls: string[]) {
     await mkdir(protocolLoadFullPath, { recursive: true });
-    const failedFiles: DownloadFailure[] = [];
+    const failedFiles: RequestFailure[] = [];
     const total = slpUrls.length;
     let completed = 0;
 
@@ -356,7 +356,7 @@ export default function setupIPCs(
   }
 
   eventEmitter.on('protocol-load-slp-urls', (slpUrls: string[]) => {
-    handleProtocolLoadSLPs(slpUrls);
+    handleProtocolLoadSlpUrls(slpUrls);
   });
 
   const onInsert = (e: MountData) => {
@@ -727,8 +727,8 @@ export default function setupIPCs(
   let replayLoadCount = 0;
   let enforcerSetting = store.get('enforcerSetting', EnforcerSetting.NONE);
   setOwnEnforcerSetting(enforcerSetting);
-  ipcMain.removeHandler('getCurrentReplays');
-  ipcMain.handle('getCurrentReplays', async () => {
+  ipcMain.removeHandler('getReplaysInDir');
+  ipcMain.handle('getReplaysInDir', async () => {
     if (replayDirs.length === 0 && !undoSrcFullPath) {
       throw new Error();
     }

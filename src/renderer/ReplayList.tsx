@@ -520,7 +520,7 @@ export default function ReplayList({
   elevateNames,
 }: {
   dirInit: boolean;
-  header: JSX.Element | null;
+  header?: JSX.Element | null;
   numAvailablePlayers: number;
   replays: Replay[];
   replayRefs: RefObject<HTMLDivElement>[];
@@ -567,3 +567,7 @@ export default function ReplayList({
     </List>
   );
 }
+
+ReplayList.defaultProps = {
+  header: null,
+};

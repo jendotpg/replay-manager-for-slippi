@@ -88,7 +88,7 @@ import {
   ReportSettings,
   SelectedSetChain,
   Set,
-  DownloadStatus,
+  SlpDownloadStatus,
   StartggSet,
   State,
   Stream,
@@ -246,21 +246,23 @@ function applyKeptReplaysSelected(
 }
 
 function Hello() {
-  const [slpDownloadStatus, setSlpDownloadStatus] = useState<DownloadStatus>({
-    status: 'idle',
-  });
+  const [slpDownloadStatus, setSlpDownloadStatus] = useState<SlpDownloadStatus>(
+    {
+      status: 'idle',
+    },
+  );
   const [beamerDownloadStatus, setBeamerDownloadStatus] =
-    useState<DownloadStatus>({ status: 'idle' });
+    useState<SlpDownloadStatus>({ status: 'idle' });
 
   useEffect(() => {
-    const handler = (_event: any, status: DownloadStatus) => {
+    const handler = (_event: any, status: SlpDownloadStatus) => {
       setSlpDownloadStatus(status);
     };
     window.electron.onSlpDownloadStatus(handler);
   }, []);
 
   useEffect(() => {
-    const handler = (_event: any, status: DownloadStatus) => {
+    const handler = (_event: any, status: SlpDownloadStatus) => {
       setBeamerDownloadStatus(status);
     };
     window.electron.onBeamerDownloadStatus(handler);
@@ -763,7 +765,7 @@ function Hello() {
         invalidReplays: newInvalidReplays,
         dir: walkedDir,
         replayLoadCount: newReplayLoadCount,
-      } = await window.electron.getCurrentReplays();
+      } = await window.electron.getReplaysInDir();
       walkedDirRef.current = walkedDir;
       setAllReplaysSelected(true);
       applyAllReplaysSelected(newReplays, true);
@@ -818,7 +820,7 @@ function Hello() {
       let newInvalidReplays: InvalidReplay[] = [];
       setGettingReplays(true);
       try {
-        const res = await window.electron.getCurrentReplays();
+        const res = await window.electron.getReplaysInDir();
         newReplays = res.replays;
         newInvalidReplays = res.invalidReplays;
         if (res.dir === walkedDirRef.current) {

@@ -11,7 +11,7 @@ import {
   Box,
 } from '@mui/material';
 
-import { DownloadStatus } from '../common/types';
+import { SlpDownloadStatus } from '../common/types';
 
 function LinearProgressWithLabel({ value }: { value: number }) {
   return (
@@ -32,7 +32,7 @@ export default function SlpDownloadModal({
   status,
   onClose,
 }: {
-  status: DownloadStatus;
+  status: SlpDownloadStatus;
   onClose: () => void;
 }) {
   if (status.status === 'downloading') {

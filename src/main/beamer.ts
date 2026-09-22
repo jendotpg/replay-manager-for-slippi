@@ -18,8 +18,8 @@ import {
   BeamerHealth,
   BeamerPort,
   BeamerStatusBody,
-  DownloadStatus,
-  DownloadFailure,
+  SlpDownloadStatus,
+  RequestFailure,
 } from '../common/types';
 import { assertInteger } from '../common/asserts';
 import { maxGamesFromIndexCeiling } from '../common/constants';
@@ -604,9 +604,9 @@ async function pruneStaleReplays(
 let mainWindow: BrowserWindow | undefined;
 let autoSubscribeBeamers = false;
 
-const sendBeamerDownloadStatus = (status: DownloadStatus) => {
+const sendBeamerDownloadStatus = (status: SlpDownloadStatus) => {
   if (mainWindow) {
-    mainWindow.webContents.send('beamerDownloadStatus', status);
+    mainWindow.webContents.send('beamer-download-status', status);
   }
 };
 
@@ -767,7 +767,7 @@ const buildBeamerFleet = (): BeamerFleet => ({
 
 const sendBeamerFleet = () => {
   if (mainWindow) {
-    mainWindow.webContents.send('beamerFleet', buildBeamerFleet());
+    mainWindow.webContents.send('beamer-fleet', buildBeamerFleet());
   }
 };
 
@@ -1171,7 +1171,7 @@ export async function refreshBeamerStatus(beamerId: string) {
 
 const runOverFleet = async (
   action: (beamer: Beamer) => Promise<void>,
-): Promise<DownloadFailure[]> => {
+): Promise<RequestFailure[]> => {
   const targets = listedBeamers();
   if (targets.length === 0) {
     throw new Error('No beamers are advertising themselves.');
@@ -1179,7 +1179,7 @@ const runOverFleet = async (
 
   const results = await Promise.allSettled(targets.map(action));
 
-  const failures: DownloadFailure[] = [];
+  const failures: RequestFailure[] = [];
   results.forEach((result, i) => {
     if (result.status === 'rejected') {
       const beamer = targets[i];

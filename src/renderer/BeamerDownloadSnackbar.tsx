@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { Close, Download, Remove } from '@mui/icons-material';
 
-import { DownloadStatus } from '../common/types';
+import { SlpDownloadStatus } from '../common/types';
 
 const MAX_VISIBLE_SOURCES = 3;
 
@@ -63,7 +63,7 @@ export default function BeamerDownloadSnackbar({
   onClose,
   onCancel,
 }: {
-  status: DownloadStatus;
+  status: SlpDownloadStatus;
   onClose: () => void;
   onCancel: () => void;
 }) {

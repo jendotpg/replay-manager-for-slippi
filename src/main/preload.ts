@@ -14,8 +14,8 @@ import {
   Replay,
   ReportSettings,
   Set,
-  DownloadStatus,
-  DownloadFailure,
+  SlpDownloadStatus,
+  RequestFailure,
   StartggSet,
   Tournament,
   WebSocketServerStatus,
@@ -39,16 +39,16 @@ const electronHandler = {
   setOfflineModePassword: (offlineModePassword: string): Promise<void> =>
     ipcRenderer.invoke('setOfflineModePassword', offlineModePassword),
   onSlpDownloadStatus: (
-    callback: (event: IpcRendererEvent, status: DownloadStatus) => void,
+    callback: (event: IpcRendererEvent, status: SlpDownloadStatus) => void,
   ) => {
     ipcRenderer.removeAllListeners('slp-download-status');
     ipcRenderer.on('slp-download-status', callback);
   },
   onBeamerDownloadStatus: (
-    callback: (event: IpcRendererEvent, status: DownloadStatus) => void,
+    callback: (event: IpcRendererEvent, status: SlpDownloadStatus) => void,
   ) => {
-    ipcRenderer.removeAllListeners('beamerDownloadStatus');
-    ipcRenderer.on('beamerDownloadStatus', callback);
+    ipcRenderer.removeAllListeners('beamer-download-status');
+    ipcRenderer.on('beamer-download-status', callback);
   },
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
@@ -90,7 +90,7 @@ const electronHandler = {
     ipcRenderer.invoke('resetBeamer', beamerId),
   refreshAllBeamers: (): Promise<void> =>
     ipcRenderer.invoke('refreshAllBeamers'),
-  resetAllBeamers: (): Promise<DownloadFailure[]> =>
+  resetAllBeamers: (): Promise<RequestFailure[]> =>
     ipcRenderer.invoke('resetAllBeamers'),
   deleteReplaysDir: (usedFilenames: string[]): Promise<boolean> =>
     ipcRenderer.invoke('deleteReplaysDir', usedFilenames),
@@ -100,12 +100,12 @@ const electronHandler = {
   ): Promise<void> =>
     ipcRenderer.invoke('deleteSelectedReplays', replayPaths, used),
   maybeEject: (): Promise<boolean> => ipcRenderer.invoke('maybeEject'),
-  getCurrentReplays: (): Promise<{
+  getReplaysInDir: (): Promise<{
     replays: Replay[];
     invalidReplays: InvalidReplay[];
     dir: string;
     replayLoadCount: number;
-  }> => ipcRenderer.invoke('getCurrentReplays'),
+  }> => ipcRenderer.invoke('getReplaysInDir'),
   writeReplays: (
     fileNames: string[],
     output: Output,
@@ -406,14 +406,14 @@ const electronHandler = {
   onReplayDir: (
     callback: (event: IpcRendererEvent, replayDir: ReplayDir | null) => void,
   ) => {
-    ipcRenderer.removeAllListeners('replayDir');
-    ipcRenderer.on('replayDir', callback);
+    ipcRenderer.removeAllListeners('replay-dir');
+    ipcRenderer.on('replay-dir', callback);
   },
   onBeamerFleet: (
     callback: (event: IpcRendererEvent, fleet: BeamerFleet) => void,
   ) => {
-    ipcRenderer.removeAllListeners('beamerFleet');
-    ipcRenderer.on('beamerFleet', callback);
+    ipcRenderer.removeAllListeners('beamer-fleet');
+    ipcRenderer.on('beamer-fleet', callback);
   },
   update: (): Promise<void> => ipcRenderer.invoke('update'),
   isMac: process.platform === 'darwin',

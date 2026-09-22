@@ -3,9 +3,9 @@ import { mkdir } from 'fs/promises';
 import { EventEmitter } from 'events';
 import {
   BeamerFile,
-  DownloadFailure,
+  RequestFailure,
   DownloadSource,
-  DownloadStatus,
+  SlpDownloadStatus,
 } from '../common/types';
 import {
   DownloadError,
@@ -53,7 +53,7 @@ type BeamerWave = {
   totalBytes: number;
   doneBytes: number;
   unknown: number;
-  failures: Map<string, DownloadFailure>;
+  failures: Map<string, RequestFailure>;
   cancelled: boolean;
 };
 
@@ -84,10 +84,10 @@ let wakeTimer: NodeJS.Timeout | null = null;
 let batchCounter = 0;
 let lastSentAt = 0;
 
-let sendStatusTo: (status: DownloadStatus) => void = () => {};
+let sendStatusTo: (status: SlpDownloadStatus) => void = () => {};
 
 export function initDownloadQueue(
-  sendStatus: (status: DownloadStatus) => void,
+  sendStatus: (status: SlpDownloadStatus) => void,
 ) {
   sendStatusTo = sendStatus;
 }
