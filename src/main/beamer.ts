@@ -717,11 +717,38 @@ const beamerLabel = (beamerId: string) =>
 
 const subscriptions = {
   subscribed: new Map<string, string>(), // stationId -> origin
+  baselines: new Map<string, string>(), // stationId -> newest index name at subscribe time
   unsubscribed: new Set<string>(), // unsubscribes have session lifetimes
 };
 
 const isSubscribed = (beamer: Pick<Beamer, 'beamerId'>) =>
   subscriptions.subscribed.has(beamer.beamerId);
+
+async function seedSubscriptionBaseline(beamerId: string) {
+  const origin = subscriptions.subscribed.get(beamerId);
+  if (!origin) {
+    return;
+  }
+  try {
+    const { files } = await getBeamerIndex(origin);
+    if (subscriptions.subscribed.get(beamerId) !== origin) {
+      return;
+    }
+    const newest = files.reduce(
+      (max: string, file: BeamerFile) =>
+        max && file.name <= max ? max : file.name,
+      '',
+    );
+    subscriptions.baselines.set(beamerId, newest);
+  } catch {
+    // unreachable - the sweep seeds inline on its next pass
+  }
+}
+
+function beginSubscriptionBaseline(beamerId: string) {
+  subscriptions.baselines.delete(beamerId);
+  seedSubscriptionBaseline(beamerId).catch(() => {});
+}
 
 function rememberBeamerSubscription(origin: string, beamer: Beamer) {
   if (!beamer.beamerId) {
@@ -729,6 +756,7 @@ function rememberBeamerSubscription(origin: string, beamer: Beamer) {
   }
   subscriptions.subscribed.set(beamer.beamerId, origin);
   rememberBeamer(beamer.beamerId, origin, beamer.beamerName);
+  beginSubscriptionBaseline(beamer.beamerId);
 }
 
 const autoSubscribeCandidate = (beamer: Beamer) =>
@@ -757,7 +785,9 @@ const listedBeamers = () =>
         ? [{ ...beamer, subscribed: isSubscribed(beamer), label }]
         : [];
     })
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    .sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { numeric: true }),
+    );
 
 const buildBeamerFleet = (): BeamerFleet => ({
   beamers: listedBeamers(),
@@ -877,7 +907,93 @@ const pullWanted = (beamerId: string) =>
   subscriptions.subscribed.has(beamerId) ||
   (autoSubscribeBeamers && !subscriptions.unsubscribed.has(beamerId));
 
+const SWEEP_INTERVAL_MS = 90000;
+
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+let sweepInFlight = false;
+let sweepQueued = false;
+
+async function reconcileSubscribedBeamer(beamerId: string, origin: string) {
+  const label = beamerLabel(beamerId);
+  if (!label) {
+    return;
+  }
+  const baseline = subscriptions.baselines.get(beamerId);
+  if (baseline === undefined) {
+    await seedSubscriptionBaseline(beamerId);
+    return;
+  }
+  let files: BeamerFile[];
+  try {
+    ({ files } = await getBeamerIndex(origin));
+  } catch {
+    return;
+  }
+  if (!subscriptions.subscribed.has(beamerId)) {
+    return;
+  }
+  const dest = beamerDirFor(beamerFullPath, beamerId);
+  files.forEach((file) => {
+    if (file.name <= baseline || isBeamerDownloadPending(dest, file.name)) {
+      return;
+    }
+    enqueueBeamerBackgroundPull({
+      dest,
+      name: file.name,
+      url: file.url,
+      size: file.size,
+      beamerId,
+      beamerName: label,
+    });
+  });
+}
+
+async function runSubscriptionSweep() {
+  sweepInFlight = true;
+  try {
+    await Promise.allSettled(
+      [...subscriptions.subscribed.entries()].map(([beamerId, origin]) =>
+        reconcileSubscribedBeamer(beamerId, origin),
+      ),
+    );
+  } finally {
+    sweepInFlight = false;
+    if (sweepQueued && sweepTimer) {
+      sweepQueued = false;
+      runSubscriptionSweep();
+    }
+  }
+}
+
+function scheduleSubscriptionSweep() {
+  if (!sweepTimer) {
+    return; 
+  }
+  if (sweepInFlight) {
+    sweepQueued = true;
+    return;
+  }
+  runSubscriptionSweep();
+}
+
+function startSubscriptionSweep() {
+  if (sweepTimer) {
+    return;
+  }
+  sweepTimer = setInterval(scheduleSubscriptionSweep, SWEEP_INTERVAL_MS);
+}
+
+function stopSubscriptionSweep() {
+  if (!sweepTimer) {
+    return;
+  }
+  clearInterval(sweepTimer);
+  sweepTimer = null;
+  sweepQueued = false;
+}
+
 const onBeamerEvent = (event: BeamerEvent) => {
+  scheduleSubscriptionSweep(); 
   refreshBeamerForEvent(event.beamerId).catch(() => {});
   if (event.event === 'game_finished' && pullWanted(event.beamerId)) {
     const beamer = liveBeamers.get(event.beamerId);
@@ -1000,6 +1116,11 @@ const updateBeamerListeners = () => {
     stopBeamerBrowser();
     stopBeamerEvents();
   }
+  if (subscriptions.subscribed.size > 0) {
+    startSubscriptionSweep();
+  } else {
+    stopSubscriptionSweep();
+  }
 };
 
 const stopBrowse = () => {
@@ -1120,11 +1241,13 @@ function setBeamerSubscription(beamerId: string, subscribed: boolean) {
       const rememberedOrigin = rememberedBeamers.get(beamerId)?.origin;
       if (rememberedOrigin) {
         subscriptions.subscribed.set(beamerId, rememberedOrigin);
+        beginSubscriptionBaseline(beamerId);
       }
     }
   } else {
     subscriptions.unsubscribed.add(beamerId);
     subscriptions.subscribed.delete(beamerId);
+    subscriptions.baselines.delete(beamerId);
   }
   updateBeamerListeners();
 }

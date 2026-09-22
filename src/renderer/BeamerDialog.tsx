@@ -606,8 +606,8 @@ export default function BeamerDialog({
                     );
                   }
                   const beamerTitle = `${beamer.label} - ${beamer.beamerId} - ${
-                      beamer.firmwareVersion ?? 'unkown firmware'
-                    }`;
+                    beamer.firmwareVersion ?? 'unknown firmware'
+                  }`;
                   return (
                     <TableRow
                       hover

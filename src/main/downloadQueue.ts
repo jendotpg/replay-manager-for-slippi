@@ -197,7 +197,7 @@ class Scheduler {
     const { interrupted } = this.active;
     this.active = null;
     if (interrupted === 'preempt') {
-      this.queue.push(job); 
+      this.queue.push(job);
     } else if (interrupted === 'cancel') {
       this.hooks.onCancelled(job);
     } else {
@@ -210,13 +210,21 @@ class Scheduler {
 // user visible unit - based on "whats happening at once", not source
 class Wave {
   totalFiles = 0;
+
   doneFiles = 0;
+
   totalBytes = 0;
+
   doneBytes = 0;
+
   unknownSizes = 0;
+
   activeWritten = 0;
+
   activeAttempt = 1;
+
   readonly failures = new Map<string, RequestFailure>();
+
   cancelled = false;
 
   add(size: number | undefined) {

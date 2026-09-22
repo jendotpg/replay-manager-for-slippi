@@ -1,27 +1,6 @@
 # Beamer support in replay manager
 
-This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi) to support getting replays over the air from [slippi-beamer](https://github.com/jendotpg/slippi-beamer) devices.
-
-TODO:
-
-- CODE QUALITY: clean this whole thing up :3
-- FEATURE REQUEST: show warning when beamer firmwares don't match
-- FEATURE REQUEST: sort station numbers numerically
-- FEATURE REQUEST: background status poll more often. maybe whenever a multicast comes in poll fleet?
-- WRITE-UP: add a "Why not FTP/Console Mirror?" section
-- WRITE-UP: split readme into PR draft and `src/docs/beamer.md`
-- actually use this in tournament a few times
-
-  - ~~NYSE redemption (1 router)~~ ✅
-  - ~~Melee at Recess (1 router)~~ ✅
-  - NYSE main bracket (1 router, maybe 2 APs - we'll need to test...)
-  - dawn of the DED (2-3 sharded routers? 1 router, 2-3 APs? we'll need to test...)
-  - if all of these work well, ill submit a PR to upstream
-
-- more maybe features:
-
-  - teams support?
-  - better set detection?
+This is a fork of [replay-manager-for-slippi](https://github.com/jmlee337/replay-manager-for-slippi) to support getting replays over the air from [slippi-beamer](https://github.com/jendotpg/slippi-beamer) devices. Status: we've used this for a few brackets tournaments (NYSE redemption, Melee at Recess) with <15 setups each needing only one router. Multi-section events should work the same but haven't been tested yet.
 
 ## What a Beamer is
 
@@ -142,7 +121,7 @@ There's no authentication at all - if you can reach the beamer, you can do anyth
 
 No new dependencies.
 
-New background traffic is only added if there are Beamers on the network with one exception: when auto-subscribe is on, the mDNS listener itself listens for new Beamers from startup. Subscribing to a station (in bulk via settings or individually in the fleet view) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive. A TO with no Beamer on the network (or only unsubscribed Beamers and auto-subscribe off) sees no background work.
+New background traffic is only added if there are Beamers on the network with one exception: when auto-subscribe is on, the mDNS listener itself listens for new Beamers from startup. Subscribing to a station (in bulk via settings or individually in the fleet view) starts background downloads: newly finished games are pulled when `game_finished` multicasts arrive and on periodic catch-up sweeps. A TO with no Beamer on the network (or only unsubscribed Beamers and auto-subscribe off) sees no background work.
 
 Four things change for a user who never touches a Beamer:
 
