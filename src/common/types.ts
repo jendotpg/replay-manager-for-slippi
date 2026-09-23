@@ -598,8 +598,6 @@ export type OfflineModeStatus = {
   error: string;
 };
 
-export type DirType = 'local' | 'usb' | 'beamer' | 'deeplink';
-
 export type BeamerPort = {
   port: number;
   charId: number | null;
@@ -628,8 +626,6 @@ export type Beamer = {
   warnings: string[];
   secsSincePortChange?: number;
   secsSinceGameStart?: number;
-  reported: boolean;
-  pingFails: number;
   game: BeamerGame | null;
 };
 

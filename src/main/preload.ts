@@ -47,8 +47,8 @@ const electronHandler = {
   onBeamerDownloadStatus: (
     callback: (event: IpcRendererEvent, status: SlpDownloadStatus) => void,
   ) => {
-    ipcRenderer.removeAllListeners('beamer-download-status');
-    ipcRenderer.on('beamer-download-status', callback);
+    ipcRenderer.removeAllListeners('beamerDownloadStatus');
+    ipcRenderer.on('beamerDownloadStatus', callback);
   },
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
@@ -406,14 +406,14 @@ const electronHandler = {
   onReplayDir: (
     callback: (event: IpcRendererEvent, replayDir: ReplayDir | null) => void,
   ) => {
-    ipcRenderer.removeAllListeners('replay-dir');
-    ipcRenderer.on('replay-dir', callback);
+    ipcRenderer.removeAllListeners('replayDir');
+    ipcRenderer.on('replayDir', callback);
   },
   onBeamerFleet: (
     callback: (event: IpcRendererEvent, fleet: BeamerFleet) => void,
   ) => {
-    ipcRenderer.removeAllListeners('beamer-fleet');
-    ipcRenderer.on('beamer-fleet', callback);
+    ipcRenderer.removeAllListeners('beamerFleet');
+    ipcRenderer.on('beamerFleet', callback);
   },
   update: (): Promise<void> => ipcRenderer.invoke('update'),
   isMac: process.platform === 'darwin',

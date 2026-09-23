@@ -250,7 +250,7 @@ export default function setupIPCs(
   }
 
   function announceReplayDir() {
-    mainWindow.webContents.send('replay-dir', topReplayDir());
+    mainWindow.webContents.send('replayDir', topReplayDir());
   }
 
   function addReplayDir(entry: ReplayDir) {

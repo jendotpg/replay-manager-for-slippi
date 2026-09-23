@@ -75,7 +75,6 @@ import {
   CopySettings,
   EnforcerSetting,
   GuideState,
-  DirType,
   Id,
   InvalidReplay,
   Mode,
@@ -202,7 +201,7 @@ const EMPTY_SELECTED_SET_CHAIN: SelectedSetChain = {
 type DirState = {
   dir: string;
   dirLabel: string;
-  dirType: DirType;
+  dirType: ReplayDir['dirType'];
   selectedBeamer: string;
 };
 
