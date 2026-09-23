@@ -9,6 +9,7 @@ import {
 } from '../common/types';
 import {
   DownloadError,
+  UnreachableDownloadError,
   downloadFile,
   hasCompleteFile,
   toDownloadError,
@@ -418,7 +419,7 @@ class Downloads {
 
   private onFailed(job: Job, failure: DownloadError) {
     this.failFile(job, failure.message);
-    if (failure.unreachable) {
+    if (failure instanceof UnreachableDownloadError) {
       this.scheduler
         .dropWhere((sibling) => sibling.batch === job.batch)
         .forEach((sibling) => this.failFile(sibling, failure.message));
