@@ -310,8 +310,13 @@ export default function setupIPCs(
         const fileName = path.basename(new URL(url).pathname);
         const dest = path.join(protocolLoadFullPath, fileName);
         try {
-          await downloadFile(url, dest);
+          await downloadFile(url, dest, { encoding: 'identity' });
         } catch (err) {
+          try {
+            await unlink(`${dest}.part`);
+          } catch (unlinkErr) {
+            // ignore
+          }
           failedFiles.push({
             label: url,
             reason: err instanceof Error ? err.message : String(err),

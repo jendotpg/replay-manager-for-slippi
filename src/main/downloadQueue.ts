@@ -428,6 +428,7 @@ class Downloads {
     }
     await downloadFile(request.url, path.join(request.dest, request.name), {
       beamerResume: true,
+      encoding: 'gzip',
       expectedSize: request.size,
       signal,
       onStart: (written) => {

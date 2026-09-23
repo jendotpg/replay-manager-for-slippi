@@ -74,6 +74,7 @@ export type DownloadOptions = {
   onStart?: (written: number) => void;
   signal?: AbortSignal;
   beamerResume?: boolean;
+  encoding: 'gzip' | 'identity';
 };
 
 async function sizeOf(file: string) {
@@ -204,7 +205,10 @@ async function downloadAttempt(
     try {
       response = await fetch(url, {
         signal: controller.signal,
-        headers: resumeHeader(beamer, from),
+        headers: {
+          'Accept-Encoding': options.encoding,
+          ...resumeHeader(beamer, from),
+        },
       });
     } catch (error) {
       if (options.signal?.aborted) {
@@ -278,7 +282,7 @@ async function downloadAttempt(
 export async function downloadFile(
   url: string,
   dest: string,
-  options: DownloadOptions = {},
+  options: DownloadOptions,
 ): Promise<void> {
   const part = `${dest}.part`;
   let tries = 1;
