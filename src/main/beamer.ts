@@ -29,14 +29,18 @@ import {
 
 const INDEX_ATTEMPTS = 3;
 const INDEX_RETRY_MS = 1000;
+const INDEX_TIMEOUT_MS = 5000;
 
 const PING_FAILS_BEFORE_OFFLINE = 3;
+
+const SWEEP_INTERVAL_MS = 90000;
 
 const EVENT_GROUP = '239.255.42.1';
 const EVENT_PORT = 34700;
 
 const STATUS_TIMEOUT_MS = 4000;
-const MAX_STATUS_BYTES = 1024 * 1024;
+const RESET_TIMEOUT_MS = 90000;
+const MAX_JSON_BYTES = 1024 * 1024;
 
 // the only wire schema this client reads - status, index and events alike
 const BEAMER_SCHEMA = 1;
@@ -197,10 +201,18 @@ function newerSchemaError(body: unknown) {
   );
 }
 
-async function readStatus(response: Response) {
+function parseJson(buf: Buffer): unknown {
+  try {
+    return JSON.parse(buf.toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function readJson(response: Response): Promise<unknown> {
   const declaredLength = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_STATUS_BYTES) {
-    throw new Error('That beamer sent back far more than a status report.');
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_JSON_BYTES) {
+    throw new Error('That beamer sent back far more than it should have.');
   }
   if (!response.body) {
     return null;
@@ -215,17 +227,26 @@ async function readStatus(response: Response) {
       break;
     }
     received += value.byteLength;
-    if (received > MAX_STATUS_BYTES) {
+    if (received > MAX_JSON_BYTES) {
       reader.cancel();
-      throw new Error('That beamer sent back far more than a status report.');
+      throw new Error('That beamer sent back far more than it should have.');
     }
     chunks.push(value);
   }
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    return null;
-  }
+  return parseJson(Buffer.concat(chunks));
+}
+
+function unreachableError(
+  e: unknown,
+  origin: string,
+  timeoutMessage = `${origin} did not respond.`,
+) {
+  const timedOut =
+    e instanceof Error &&
+    (e.name === 'TimeoutError' || e.name === 'AbortError');
+  return new Error(
+    timedOut ? timeoutMessage : `Could not reach a Beamer at ${origin}.`,
+  );
 }
 
 type StatusResult =
@@ -239,13 +260,7 @@ async function getBeamerStatus(origin: string): Promise<StatusResult> {
       signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
     });
   } catch (e) {
-    if (
-      e instanceof Error &&
-      (e.name === 'TimeoutError' || e.name === 'AbortError')
-    ) {
-      throw new Error(`${origin} did not respond.`);
-    }
-    throw new Error(`Could not reach a Beamer at ${origin}.`);
+    throw unreachableError(e, origin);
   }
 
   if (response.status === 503) {
@@ -255,7 +270,7 @@ async function getBeamerStatus(origin: string): Promise<StatusResult> {
     throw new Error(`${origin} answered ${response.status} for /status.`);
   }
 
-  const body = await readStatus(response);
+  const body = await readJson(response);
   if (!isStatusBody(body)) {
     const schemaError = newerSchemaError(body);
     if (schemaError) {
@@ -268,8 +283,6 @@ async function getBeamerStatus(origin: string): Promise<StatusResult> {
   return { kind: 'status', body };
 }
 
-const RESET_TIMEOUT_MS = 90000;
-
 async function requestBeamerReset(origin: string) {
   let response;
   try {
@@ -280,48 +293,32 @@ async function requestBeamerReset(origin: string) {
       signal: AbortSignal.timeout(RESET_TIMEOUT_MS),
     });
   } catch (e) {
-    if (
-      e instanceof Error &&
-      (e.name === 'TimeoutError' || e.name === 'AbortError')
-    ) {
-      throw new Error(
-        `${origin} did not answer the reset. Check the beamer before assuming its replays survived.`,
-      );
-    }
-    throw new Error(`Could not reach a Beamer at ${origin}.`);
+    throw unreachableError(
+      e,
+      origin,
+      `${origin} did not answer the reset. Check the beamer before assuming its replays survived.`,
+    );
   }
 
-  if (response.status === 409) {
-    let reported = '';
-    try {
-      const body = await response.json();
-      reported = typeof body?.error === 'string' ? body.error : '';
-    } catch {
-      reported = ''; // no usable error body...
-    }
-    throw new Error(
-      reported
-        ? `That beamer refused: ${reported}. Nothing was erased - try again in a moment.`
-        : 'That beamer is busy sending a replay, or with another action. Nothing was erased - try again in a moment.',
-    );
+  if (response.ok) {
+    return;
   }
   if (response.status === 400) {
     throw new Error(
       `${origin} refused the reset confirmation header. Is that a Beamer?`,
     );
   }
-  if (!response.ok) {
-    let reported = '';
-    try {
-      const body = await response.json();
-      reported = typeof body?.error === 'string' ? body.error : '';
-    } catch {
-      reported = ''; // no usable error body...
-    }
+  const reported = asString(asRecord(await readJson(response))?.error);
+  if (response.status === 409) {
     throw new Error(
-      reported || `${origin} answered ${response.status} for /reset-beamer.`,
+      reported
+        ? `That beamer refused: ${reported}. Nothing was erased - try again in a moment.`
+        : 'That beamer is busy sending a replay, or with another action. Nothing was erased - try again in a moment.',
     );
   }
+  throw new Error(
+    reported || `${origin} answered ${response.status} for /reset-beamer.`,
+  );
 }
 
 function addressFor(service: { addresses: string[]; port: number }) {
@@ -381,22 +378,6 @@ function browseForBeamers(callbacks: {
   };
 }
 
-function safeJsonParse(buf: Buffer): unknown {
-  try {
-    return JSON.parse(buf.toString('utf8'));
-  } catch {
-    return null;
-  }
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
 export function sanitizeReplayName(name: string): string {
   const base = path.basename(name);
   if (!base.endsWith('.slp') || base.startsWith('.')) {
@@ -406,7 +387,7 @@ export function sanitizeReplayName(name: string): string {
 }
 
 function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
-  const body = asRecord(safeJsonParse(buf));
+  const body = asRecord(parseJson(buf));
   if (!body || body.schema !== BEAMER_SCHEMA) {
     return null;
   }
@@ -510,7 +491,7 @@ async function fetchIndex(origin: string) {
     try {
       // eslint-disable-next-line no-await-in-loop
       return await fetch(`${origin}/SLIPPI/`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(INDEX_TIMEOUT_MS),
       });
     } catch (e) {
       last = e;
@@ -542,13 +523,7 @@ async function getBeamerIndex(origin: string) {
   try {
     response = await fetchIndex(origin);
   } catch (e) {
-    if (
-      e instanceof Error &&
-      (e.name === 'TimeoutError' || e.name === 'AbortError')
-    ) {
-      throw new Error(`${origin} did not respond.`);
-    }
-    throw new Error(`Could not reach a Beamer at ${origin}.`);
+    throw unreachableError(e, origin);
   }
   if (!response.ok) {
     throw new Error(
@@ -601,7 +576,7 @@ async function getBeamerIndex(origin: string) {
   };
 }
 
-function beamerDirFor(cacheRoot: string, beamerId: string) {
+function beamerDirFor(beamerId: string) {
   if (!beamerId) {
     throw new Error(
       'Refusing to cache replays for a beamer with no station id.',
@@ -611,7 +586,7 @@ function beamerDirFor(cacheRoot: string, beamerId: string) {
   if (!label) {
     throw new Error(`Could not derive a cache directory for ${beamerId}.`);
   }
-  return path.join(cacheRoot, label);
+  return path.join(beamerFullPath, label);
 }
 
 async function nextOlderMissingFile(dest: string, files: BeamerFile[]) {
@@ -766,7 +741,7 @@ function rememberBeamer(
 }
 
 const beamerLabel = (beamerId: string) =>
-  rememberedBeamers.get(beamerId)?.name || beamerId || undefined;
+  rememberedBeamers.get(beamerId)?.name || beamerId;
 
 const subscriptions = {
   subscribed: new Map<string, string>(), // stationId -> origin
@@ -831,17 +806,16 @@ const listedBeamers = () =>
         (liveBeamers.pingFails.get(beamer.beamerId) ?? 0) <
         PING_FAILS_BEFORE_OFFLINE,
     )
-    .flatMap((beamer) => {
-      const label = beamerLabel(beamer.beamerId);
-      return label
-        ? [{ ...beamer, subscribed: isSubscribed(beamer), label }]
-        : [];
-    })
+    .map((beamer) => ({
+      ...beamer,
+      subscribed: isSubscribed(beamer),
+      label: beamerLabel(beamer.beamerId),
+    }))
     .sort((a, b) =>
       a.label.localeCompare(b.label, undefined, { numeric: true }),
     );
 
-const buildBeamerFleet = (): BeamerFleet => ({
+export const getBeamerFleet = (): BeamerFleet => ({
   beamers: listedBeamers(),
   browsing: browse.handle !== null,
   error: browse.error,
@@ -852,7 +826,7 @@ const buildBeamerFleet = (): BeamerFleet => ({
 
 const sendBeamerFleet = () => {
   if (mainWindow) {
-    mainWindow.webContents.send('beamerFleet', buildBeamerFleet());
+    mainWindow.webContents.send('beamerFleet', getBeamerFleet());
   }
 };
 
@@ -864,7 +838,7 @@ const pruneStaleReplaysFor = async (
   if (!beamer.beamerId) {
     return;
   }
-  const dest = beamerDirFor(beamerFullPath, beamer.beamerId);
+  const dest = beamerDirFor(beamer.beamerId);
   const cached = await listCachedReplays(dest);
   if (cached.length === 0) {
     return;
@@ -969,17 +943,11 @@ const pullWanted = (beamerId: string) =>
   subscriptions.subscribed.has(beamerId) ||
   (autoSubscribeBeamers && !subscriptions.unsubscribed.has(beamerId));
 
-const SWEEP_INTERVAL_MS = 90000;
-
 let sweepTimer: ReturnType<typeof setInterval> | null = null;
 let sweepInFlight = false;
 let sweepQueued = false;
 
 async function reconcileSubscribedBeamer(beamerId: string, origin: string) {
-  const label = beamerLabel(beamerId);
-  if (!label) {
-    return;
-  }
   const baseline = subscriptions.baselines.get(beamerId);
   if (baseline === undefined) {
     await seedSubscriptionBaseline(beamerId);
@@ -994,7 +962,8 @@ async function reconcileSubscribedBeamer(beamerId: string, origin: string) {
   if (!subscriptions.subscribed.has(beamerId)) {
     return;
   }
-  const dest = beamerDirFor(beamerFullPath, beamerId);
+  const dest = beamerDirFor(beamerId);
+  const label = beamerLabel(beamerId);
   files.forEach((file) => {
     if (file.name <= baseline || isBeamerDownloadPending(dest, file.name)) {
       return;
@@ -1065,22 +1034,17 @@ const onBeamerEvent = (event: BeamerEvent) => {
       (beamer ? toBeamerOrigin(beamer.address) : '');
     if (origin) {
       try {
-        const label = beamerLabel(event.beamerId);
-        if (!label) {
-          throw new Error('Refusing to pull for a beamer with no station id.');
-        }
-        const name = sanitizeReplayName(event.replay.name);
-        const url = name ? beamerReplayUrl(event.replay.url, origin) : '';
-        if (!name || !url) {
+        const url = beamerReplayUrl(event.replay.url, origin);
+        if (!url) {
           throw new Error('Ignoring replay that fails beamer sanitization.');
         }
         enqueueBeamerBackgroundPull({
-          dest: beamerDirFor(beamerFullPath, event.beamerId),
-          name,
+          dest: beamerDirFor(event.beamerId),
+          name: event.replay.name,
           url,
           size: event.replay.size,
           beamerId: event.beamerId,
-          beamerName: label,
+          beamerName: beamerLabel(event.beamerId),
         });
       } catch {
         // unparseable replay url - it'll get fetched on select
@@ -1188,24 +1152,16 @@ const updateBeamerListeners = () => {
   }
 };
 
-const stopBrowse = () => {
+export function stopBeamerBrowse() {
   browse.open = false;
   updateBeamerListeners();
-};
+}
 
 export function startBeamerBrowse() {
   browse.open = true;
   updateBeamerListeners();
   refreshAllBeamers().catch(() => {}); // truth-check the fleet the moment the dialog opens
   sendBeamerFleet();
-}
-
-export function stopBeamerBrowse() {
-  stopBrowse();
-}
-
-export function getBeamerFleet(): BeamerFleet {
-  return buildBeamerFleet();
 }
 
 export async function selectBeamer(beamerId: string, maxGames: number) {
@@ -1217,7 +1173,7 @@ export async function selectBeamer(beamerId: string, maxGames: number) {
   if (!origin) {
     throw new Error('That beamer is no longer advertising itself.');
   }
-  stopBrowse();
+  stopBeamerBrowse();
 
   const indexPromise = getBeamerIndex(origin);
   const statusPromise = getBeamerStatus(origin).catch(() => null);
@@ -1233,7 +1189,7 @@ export async function selectBeamer(beamerId: string, maxGames: number) {
       : '';
   const label = beamerName || remembered;
 
-  const dest = beamerDirFor(beamerFullPath, indexBeamerId);
+  const dest = beamerDirFor(indexBeamerId);
 
   await mkdir(dest, { recursive: true });
   rememberBeamer(indexBeamerId, origin, label);
@@ -1256,11 +1212,12 @@ export async function refreshFromBeamer(
   }
 
   const { files } = await getBeamerIndex(origin);
-  const label = beamerLabel(beamerId);
-  if (!label) {
-    throw new Error('Those replays are no longer loaded from a Beamer.');
-  }
-  await enqueueBeamerPull(dir, files.slice(0, maxGames), beamerId, label);
+  await enqueueBeamerPull(
+    dir,
+    files.slice(0, maxGames),
+    beamerId,
+    beamerLabel(beamerId),
+  );
 }
 
 export async function getPreviousBeamerReplay(beamerId: string, dir: string) {
@@ -1289,15 +1246,10 @@ export async function downloadPreviousBeamerReplay(
   if (!previous) {
     return;
   }
-
-  const label = beamerLabel(beamerId);
-  if (!label) {
-    throw new Error('Those replays are no longer loaded from a Beamer.');
-  }
-  await enqueueBeamerPull(dir, [previous], beamerId, label);
+  await enqueueBeamerPull(dir, [previous], beamerId, beamerLabel(beamerId));
 }
 
-function setBeamerSubscription(beamerId: string, subscribed: boolean) {
+export function setBeamerSubscribed(beamerId: string, subscribed: boolean) {
   if (subscribed) {
     const beamer = liveBeamers.byId.get(beamerId);
     if (beamer) {
@@ -1315,10 +1267,6 @@ function setBeamerSubscription(beamerId: string, subscribed: boolean) {
     subscriptions.baselines.delete(beamerId);
   }
   updateBeamerListeners();
-}
-
-export function setBeamerSubscribed(beamerId: string, subscribed: boolean) {
-  setBeamerSubscription(beamerId, subscribed);
   sendBeamerFleet();
 }
 
