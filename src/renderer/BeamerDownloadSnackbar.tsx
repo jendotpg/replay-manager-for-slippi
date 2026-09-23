@@ -83,7 +83,7 @@ export default function BeamerDownloadSnackbar({
           label={`${Math.round(status.progress)}%`}
           onClick={() => setHidden(false)}
           sx={{
-            position: 'fixed',
+            position: 'absolute',
             left: 56,
             bottom: 8,
             height: 40,
@@ -107,9 +107,8 @@ export default function BeamerDownloadSnackbar({
     const names = status.sources.map((source) => source.label);
     const visible = names.slice(0, MAX_VISIBLE_SOURCES).join(', ');
     const overflow = names.length - MAX_VISIBLE_SOURCES;
-    const succeeded = filesDone - failedCount;
     const counted = ` (${Math.min(
-      succeeded + 1,
+      filesDone + 1,
       totalFiles,
     )} of ${totalFiles})`;
     const failed = failedCount === 0 ? '' : `${failedCount} failed, `;
@@ -209,10 +208,9 @@ export default function BeamerDownloadSnackbar({
         left: 8,
         bottom: 8,
         right: 'auto',
-        maxWidth: 'calc(100vw - 340px)',
       }}
     >
-      <Paper elevation={6} sx={{ p: 1.5, width: 360, maxWidth: '100%' }}>
+      <Paper elevation={6} sx={{ p: 1.5, width: 360 }}>
         {content}
       </Paper>
     </Snackbar>
