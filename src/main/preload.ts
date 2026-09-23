@@ -53,8 +53,11 @@ const electronHandler = {
   getReplaysDir: (): Promise<string> => ipcRenderer.invoke('getReplaysDir'),
   chooseReplaysDir: (): Promise<string> =>
     ipcRenderer.invoke('chooseReplaysDir'),
-  selectBeamer: (beamerId: string): Promise<string> =>
-    ipcRenderer.invoke('selectBeamer', beamerId),
+  selectBeamer: (
+    beamerId: string,
+    maxGamesFromIndex: number,
+  ): Promise<string> =>
+    ipcRenderer.invoke('selectBeamer', beamerId, maxGamesFromIndex),
   setBeamerSubscribed: (beamerId: string, subscribed: boolean): Promise<void> =>
     ipcRenderer.invoke('setBeamerSubscribed', beamerId, subscribed),
   getBeamersAutoSubscribe: (): Promise<boolean> =>
@@ -67,8 +70,6 @@ const electronHandler = {
     ipcRenderer.invoke('cancelBeamerDownload'),
   getMaxGamesFromIndex: (): Promise<number> =>
     ipcRenderer.invoke('getMaxGamesFromIndex'),
-  setMaxGamesFromIndex: (maxGamesFromIndex: number): Promise<number> =>
-    ipcRenderer.invoke('setMaxGamesFromIndex', maxGamesFromIndex),
   getPreviousBeamerReplay: (beamerId: string): Promise<string> =>
     ipcRenderer.invoke('getPreviousBeamerReplay', beamerId),
   downloadPreviousBeamerReplay: (beamerId: string): Promise<void> =>
@@ -82,8 +83,6 @@ const electronHandler = {
   startBeamerBrowse: (): Promise<void> =>
     ipcRenderer.invoke('startBeamerBrowse'),
   stopBeamerBrowse: (): Promise<void> => ipcRenderer.invoke('stopBeamerBrowse'),
-  getBeamerFleet: (): Promise<BeamerFleet> =>
-    ipcRenderer.invoke('getBeamerFleet'),
   refreshBeamerStatus: (beamerId: string): Promise<void> =>
     ipcRenderer.invoke('refreshBeamerStatus', beamerId),
   resetBeamer: (beamerId: string): Promise<void> =>

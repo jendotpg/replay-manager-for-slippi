@@ -36,7 +36,7 @@ Slippi console mirror is not an option at all without one central, always on com
 | mDNS               | N/A                  | Stations advertise`_beamer._tcp` on port 80.                  |
 | multicast announce | `239.255.42.1:34700` | Sends events on game start and game finish                    |
 
-`GET /SLIPPI/` -> a JSON index of the replays the station is serving right now, newest first (`NUM-REPLAYS-SERVED`, up to 16: `maxGamesFromIndexCeiling` in `src/common/constants.ts`).
+`GET /SLIPPI/` -> a JSON index of the replays the station is serving right now, newest first (`NUM-REPLAYS-SERVED`, up to 16).
 
 ```json
 {

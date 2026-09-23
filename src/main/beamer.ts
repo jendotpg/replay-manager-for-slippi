@@ -814,7 +814,7 @@ const listedBeamers = () =>
       a.label.localeCompare(b.label, undefined, { numeric: true }),
     );
 
-export const getBeamerFleet = (): BeamerFleet => ({
+const getBeamerFleet = (): BeamerFleet => ({
   beamers: listedBeamers(),
   browsing: browse.handle !== null,
   error: browse.error,
@@ -1172,7 +1172,6 @@ export async function selectBeamer(beamerId: string, maxGames: number) {
   if (!origin) {
     throw new Error('That beamer is no longer advertising itself.');
   }
-  stopBeamerBrowse();
 
   const indexPromise = getBeamerIndex(origin);
   const statusPromise = getBeamerStatus(origin).catch(() => null);

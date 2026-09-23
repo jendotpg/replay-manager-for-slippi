@@ -128,7 +128,6 @@ import {
   refreshFromBeamer,
   getPreviousBeamerReplay,
   downloadPreviousBeamerReplay,
-  getBeamerFleet,
   startBeamerBrowse,
   stopBeamerBrowse,
   setBeamerSubscribed,
@@ -436,21 +435,26 @@ export default function setupIPCs(
   });
 
   ipcMain.removeHandler('selectBeamer');
-  ipcMain.handle('selectBeamer', async (event, beamerId: string) => {
-    const {
-      dest,
-      display,
-      beamerId: indexBeamerId,
-    } = await selectBeamer(beamerId, maxGamesFromIndex);
-    replayDirs = replayDirs.filter((replayDir) => replayDir.dir !== dest);
-    addReplayDir({
-      dir: dest,
-      dirType: 'beamer',
-      display,
-      beamerId: indexBeamerId,
-    });
-    return dest;
-  });
+  ipcMain.handle(
+    'selectBeamer',
+    async (event, beamerId: string, newMaxGamesFromIndex: number) => {
+      maxGamesFromIndex = clampMaxGamesFromIndex(newMaxGamesFromIndex);
+      store.set('maxGamesFromIndex', maxGamesFromIndex);
+      const {
+        dest,
+        display,
+        beamerId: indexBeamerId,
+      } = await selectBeamer(beamerId, maxGamesFromIndex);
+      replayDirs = replayDirs.filter((replayDir) => replayDir.dir !== dest);
+      addReplayDir({
+        dir: dest,
+        dirType: 'beamer',
+        display,
+        beamerId: indexBeamerId,
+      });
+      return dest;
+    },
+  );
 
   ipcMain.removeHandler('refreshFromBeamer');
   ipcMain.handle('refreshFromBeamer', async (event, beamerId: string) => {
@@ -504,9 +508,6 @@ export default function setupIPCs(
     stopBeamerBrowse();
   });
 
-  ipcMain.removeHandler('getBeamerFleet');
-  ipcMain.handle('getBeamerFleet', () => getBeamerFleet());
-
   ipcMain.removeHandler('setBeamerSubscribed');
   ipcMain.handle(
     'setBeamerSubscribed',
@@ -542,17 +543,6 @@ export default function setupIPCs(
 
   ipcMain.removeHandler('getMaxGamesFromIndex');
   ipcMain.handle('getMaxGamesFromIndex', () => maxGamesFromIndex);
-
-  ipcMain.removeHandler('setMaxGamesFromIndex');
-  ipcMain.handle(
-    'setMaxGamesFromIndex',
-    (event, newMaxGamesFromIndex: number) => {
-      const clamped = clampMaxGamesFromIndex(newMaxGamesFromIndex);
-      maxGamesFromIndex = clamped;
-      store.set('maxGamesFromIndex', clamped);
-      return clamped;
-    },
-  );
 
   const maybeEject = (currentDir: ReplayDir) => {
     if (currentDir.dirType !== 'usb') {

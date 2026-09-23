@@ -141,8 +141,7 @@ function PortCell({
     return <TableCell />;
   }
   const charName =
-    (port.charId === null ? port.char : characterNames.get(port.charId)) ||
-    port.char;
+    (port.charId !== null && characterNames.get(port.charId)) || port.char;
   return (
     <TableCell>
       <Stack alignItems="center" direction="row" gap="4px">
@@ -294,35 +293,34 @@ export default function BeamerDialog({
     LabeledBeamer | 'all' | null
   >(null);
   const [error, setError] = useState('');
-  const [maxGamesFromIndex, setMaxGamesFromIndex] = useState(4);
+  const [maxGamesFromIndex, setMaxGamesFromIndex] = useState('');
 
   useEffect(() => {
     window.electron.onBeamerFleet((_event, newFleet) => {
       setFleet(newFleet);
     });
+    (async () => {
+      setMaxGamesFromIndex(`${await window.electron.getMaxGamesFromIndex()}`);
+    })();
   }, []);
 
   useEffect(() => {
     if (!open) {
-      window.electron.stopBeamerBrowse();
       return undefined;
     }
 
     setError('');
-    (async () => {
-      setMaxGamesFromIndex(await window.electron.getMaxGamesFromIndex());
-      setFleet(await window.electron.getBeamerFleet());
-      await window.electron.startBeamerBrowse();
-    })();
-    return undefined;
+    window.electron.startBeamerBrowse();
+    return () => {
+      window.electron.stopBeamerBrowse();
+    };
   }, [open]);
 
-  const select = async (beamerId: string) => {
-    setBusyWith({ kind: 'copy', target: beamerId });
+  const runBusy = async (busy: BeamerBusy, action: () => Promise<unknown>) => {
+    setBusyWith(busy);
     setError('');
     try {
-      await window.electron.selectBeamer(beamerId);
-      onClose();
+      await action();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -330,62 +328,39 @@ export default function BeamerDialog({
     }
   };
 
-  const refresh = async (beamerId: string) => {
-    setBusyWith({ kind: 'refresh', target: beamerId });
-    setError('');
-    try {
-      await window.electron.refreshBeamerStatus(beamerId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyWith(null);
-    }
-  };
-
-  const toggleSubscribe = async (beamer: LabeledBeamer) => {
-    setBusyWith({ kind: 'subscribe', target: beamer.beamerId });
-    setError('');
-    try {
-      await window.electron.setBeamerSubscribed(
-        beamer.beamerId,
-        !beamer.subscribed,
+  const select = (beamerId: string) =>
+    runBusy({ kind: 'copy', target: beamerId }, async () => {
+      await window.electron.selectBeamer(
+        beamerId,
+        parseInt(maxGamesFromIndex, 10),
       );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyWith(null);
-    }
-  };
+      onClose();
+    });
 
-  const refreshAll = async () => {
-    setBusyWith({ kind: 'refresh', target: 'all' });
-    setError('');
-    try {
-      await window.electron.refreshAllBeamers();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyWith(null);
-    }
-  };
+  const refresh = (beamerId: string) =>
+    runBusy({ kind: 'refresh', target: beamerId }, () =>
+      window.electron.refreshBeamerStatus(beamerId),
+    );
+
+  const toggleSubscribe = (beamer: LabeledBeamer) =>
+    runBusy({ kind: 'subscribe', target: beamer.beamerId }, () =>
+      window.electron.setBeamerSubscribed(beamer.beamerId, !beamer.subscribed),
+    );
+
+  const refreshAll = () =>
+    runBusy({ kind: 'refresh', target: 'all' }, () =>
+      window.electron.refreshAllBeamers(),
+    );
 
   const reset = async (beamer: Beamer) => {
-    setBusyWith({ kind: 'reset', target: beamer.beamerId });
-    setError('');
-    try {
-      await window.electron.resetBeamer(beamer.beamerId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyWith(null);
-      setConfirmingReset(null);
-    }
+    await runBusy({ kind: 'reset', target: beamer.beamerId }, () =>
+      window.electron.resetBeamer(beamer.beamerId),
+    );
+    setConfirmingReset(null);
   };
 
   const resetAll = async () => {
-    setBusyWith({ kind: 'reset', target: 'all' });
-    setError('');
-    try {
+    await runBusy({ kind: 'reset', target: 'all' }, async () => {
       const failures = await window.electron.resetAllBeamers();
       if (failures.length > 0) {
         setError(
@@ -394,12 +369,8 @@ export default function BeamerDialog({
             .join('\n')}`,
         );
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyWith(null);
-      setConfirmingReset(null);
-    }
+    });
+    setConfirmingReset(null);
   };
 
   const busyKind = (kind: BeamerBusy['kind']) => busyWith?.kind === kind;
@@ -442,14 +413,8 @@ export default function BeamerDialog({
                     min: 1,
                     style: { textAlign: 'right' },
                   }}
-                  onChange={async (event) => {
-                    const parsed = parseInt(event.target.value, 10);
-                    if (!Number.isInteger(parsed)) {
-                      return;
-                    }
-                    const clamped = Math.max(parsed, 1);
-                    setMaxGamesFromIndex(clamped);
-                    await window.electron.setMaxGamesFromIndex(clamped);
+                  onChange={(event) => {
+                    setMaxGamesFromIndex(event.target.value);
                   }}
                   size="small"
                   style={{ width: '40px' }}
