@@ -7,24 +7,18 @@ import path from 'path';
 import sanitize from 'sanitize-filename';
 import { parse as parseIpaddr } from 'ipaddr.js';
 import {
-  BEAMER_EVENT_KINDS,
-  BEAMER_HEALTHS,
   Beamer,
-  BeamerEvent,
-  BeamerEventKind,
-  BeamerFile,
   BeamerFleet,
   BeamerGame,
   BeamerHealth,
   BeamerPort,
-  BeamerStatusBody,
   SlpDownloadStatus,
   RequestFailure,
 } from '../common/types';
 import { assertInteger } from '../common/asserts';
-import { maxGamesFromIndexCeiling } from '../common/constants';
 import { hasCompleteFile } from './download';
 import {
+  BeamerFile,
   beamerDirWritten,
   enqueueBeamerBackgroundPull,
   enqueueBeamerPull,
@@ -43,6 +37,58 @@ const EVENT_PORT = 34700;
 
 const STATUS_TIMEOUT_MS = 4000;
 const MAX_STATUS_BYTES = 1024 * 1024;
+
+// the only wire schema this client reads - status, index and events alike
+const BEAMER_SCHEMA = 1;
+
+const BEAMER_HEALTHS: readonly BeamerHealth[] = [
+  'ok',
+  'starting',
+  'warn',
+  'error',
+];
+
+const BEAMER_EVENT_KINDS = ['game_started', 'game_finished'] as const;
+
+type BeamerEventKind = (typeof BEAMER_EVENT_KINDS)[number];
+
+type BeamerEvent = {
+  event: BeamerEventKind;
+  beamerId: string;
+  beamerName: string;
+  replay: { name: string; size?: number; url: string };
+};
+
+type BeamerStatusBody = {
+  schema: typeof BEAMER_SCHEMA;
+  station_id: string;
+  station_name?: string;
+  firmware_version?: string;
+  replay_count?: number;
+  replay_cap?: number;
+  health?: BeamerHealth;
+  warnings?: unknown;
+  secs_since_port_change?: number;
+  secs_since_game_start?: number;
+  game?: unknown;
+};
+
+class BeamerSchemaError extends Error {
+  firmwareVersion: string;
+
+  stationName: string;
+
+  constructor(stationName: string, firmwareVersion: string) {
+    super(
+      `Beamer ${stationName} found on ${
+        firmwareVersion ? `firmware ${firmwareVersion}` : 'newer firmware'
+      } - your Replay Reporter is out of date. Update Replay Reporter.`,
+    );
+    this.name = 'BeamerSchemaError';
+    this.stationName = stationName;
+    this.firmwareVersion = firmwareVersion;
+  }
+}
 
 export const beamerFullPath = path.join(
   app.getPath('userData'),
@@ -89,7 +135,7 @@ function asGame(value: unknown): BeamerGame | null {
 }
 
 function asHealth(value: unknown): BeamerHealth {
-  return BEAMER_HEALTHS.includes(value as (typeof BEAMER_HEALTHS)[number])
+  return BEAMER_HEALTHS.includes(value as BeamerHealth)
     ? (value as BeamerHealth)
     : 'unknown';
 }
@@ -132,8 +178,24 @@ function isStatusBody(body: unknown): body is BeamerStatusBody {
   const record = asRecord(body);
   return Boolean(
     record &&
-      typeof record.schema === 'number' &&
+      record.schema === BEAMER_SCHEMA &&
       typeof record.station_id === 'string',
+  );
+}
+
+function newerSchemaError(body: unknown) {
+  const record = asRecord(body);
+  if (
+    !record ||
+    typeof record.schema !== 'number' ||
+    record.schema <= BEAMER_SCHEMA ||
+    typeof record.station_id !== 'string'
+  ) {
+    return null;
+  }
+  return new BeamerSchemaError(
+    asString(record.station_name) || record.station_id,
+    asString(record.firmware_version),
   );
 }
 
@@ -197,6 +259,10 @@ async function getBeamerStatus(origin: string): Promise<StatusResult> {
 
   const body = await readStatus(response);
   if (!isStatusBody(body)) {
+    const schemaError = newerSchemaError(body);
+    if (schemaError) {
+      throw schemaError;
+    }
     throw new Error(
       `${origin} did not return a status report. Is it a Beamer?`,
     );
@@ -343,7 +409,7 @@ export function sanitizeReplayName(name: string): string {
 
 function parseBeamerEvent(buf: Buffer): BeamerEvent | null {
   const body = asRecord(safeJsonParse(buf));
-  if (!body || !('schema' in body)) {
+  if (!body || body.schema !== BEAMER_SCHEMA) {
     return null;
   }
   if (!BEAMER_EVENT_KINDS.includes(body.event as BeamerEventKind)) {
@@ -496,6 +562,13 @@ async function getBeamerIndex(origin: string) {
   const filesList = Array.isArray(index?.files) ? index.files : null;
   if (!index || !filesList) {
     throw new Error(`${origin} did not return a replay index.`);
+  }
+  if (index.schema !== BEAMER_SCHEMA) {
+    throw new Error(
+      typeof index.schema === 'number' && index.schema > BEAMER_SCHEMA
+        ? "That beamer's firmware is newer than this Replay Reporter understands. Update Replay Reporter."
+        : `${origin} did not return a replay index.`,
+    );
   }
 
   const files: BeamerFile[] = [];
@@ -677,15 +750,25 @@ const liveBeamers = createLiveBeamers();
 
 const createGhostList = () => {
   // a ghost is a beamer seen on mDNS that doesn't meet the HTTP API...
-  const byAddress = new Map<string, BeamerBase>();
+  const byAddress = new Map<
+    string,
+    { base: BeamerBase; error?: BeamerSchemaError }
+  >();
 
   return {
-    upsert: (base: BeamerBase) => {
-      byAddress.set(base.address, base);
+    upsert: (base: BeamerBase, error?: BeamerSchemaError) => {
+      byAddress.set(base.address, { base, error });
     },
     findByHost: (host: string) =>
-      Array.from(byAddress.values()).filter((base) => base.host === host),
-    all: () => Array.from(byAddress.values()),
+      Array.from(byAddress.values())
+        .map((ghost) => ghost.base)
+        .filter((base) => base.host === host),
+    all: () => Array.from(byAddress.values()).map((ghost) => ghost.base),
+    errorAt: (address: string) => byAddress.get(address)?.error,
+    errors: () =>
+      Array.from(byAddress.values()).flatMap((ghost) =>
+        ghost.error ? [ghost.error.message] : [],
+      ),
     remove: (address: string) => {
       byAddress.delete(address);
     },
@@ -793,6 +876,7 @@ const buildBeamerFleet = (): BeamerFleet => ({
   beamers: listedBeamers(),
   browsing: browse.handle !== null,
   error: browse.error,
+  ghostBeamerErrors: ghosts.errors(),
 });
 
 const sendBeamerFleet = () => {
@@ -841,7 +925,12 @@ const refreshBeamer = async (base: BeamerBase) => {
   let result: StatusResult;
   try {
     result = await getBeamerStatus(origin);
-  } catch {
+  } catch (e) {
+    if (e instanceof BeamerSchemaError) {
+      liveBeamers.removeByAddress(base.address);
+      ghosts.upsert(base, e);
+      return;
+    }
     liveBeamers.markPingMiss(base);
     return;
   }
@@ -1055,7 +1144,7 @@ const startBeamerBrowser = () => {
       if (known) {
         liveBeamers.upsert({ ...known, ...base });
       } else {
-        ghosts.upsert(base);
+        ghosts.upsert(base, ghosts.errorAt(base.address));
       }
       sendBeamerFleet();
       refreshBeamer(base)
@@ -1335,10 +1424,7 @@ export function resetAllBeamers() {
 }
 
 export function clampMaxGamesFromIndex(newMaxGamesFromIndex: number) {
-  return Math.min(
-    Math.max(assertInteger(newMaxGamesFromIndex), 1),
-    maxGamesFromIndexCeiling,
-  );
+  return Math.max(assertInteger(newMaxGamesFromIndex), 1);
 }
 
 export function initBeamers(

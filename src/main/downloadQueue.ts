@@ -3,7 +3,6 @@ import path from 'path';
 import { mkdir } from 'fs/promises';
 import { EventEmitter } from 'events';
 import {
-  BeamerFile,
   RequestFailure,
   DownloadSource,
   SlpDownloadStatus,
@@ -16,6 +15,8 @@ import {
 } from './download';
 
 const STATUS_THROTTLE_MS = 100;
+
+export type BeamerFile = { name: string; size?: number; url: string };
 
 export type BeamerDownloadRequest = {
   dest: string;

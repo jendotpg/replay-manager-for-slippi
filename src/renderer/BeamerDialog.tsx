@@ -39,10 +39,8 @@ import {
 } from '../common/types';
 import {
   beamerDeadColor,
-  beamerDownWarnings,
   beamerHealthColor,
   characterNames,
-  maxGamesFromIndexCeiling,
   unknownCharacterId,
 } from '../common/constants';
 import getCharacterIcon from './getCharacterIcon';
@@ -101,12 +99,6 @@ function BeamersTooltip({
 }
 
 function liveLightColor(beamer: Beamer) {
-  const down =
-    beamer.health === 'error' ||
-    beamer.warnings.some((warning) => beamerDownWarnings.includes(warning));
-  if (down) {
-    return beamerHealthColor.error;
-  }
   if (beamer.game?.live) {
     return beamerHealthColor[beamer.health];
   }
@@ -295,6 +287,7 @@ export default function BeamerDialog({
     beamers: [],
     browsing: false,
     error: '',
+    ghostBeamerErrors: [],
   });
   const [busyWith, setBusyWith] = useState<BeamerBusy | null>(null);
   const [confirmingReset, setConfirmingReset] = useState<
@@ -447,7 +440,6 @@ export default function BeamerDialog({
                 <TextField
                   inputProps={{
                     min: 1,
-                    max: maxGamesFromIndexCeiling,
                     style: { textAlign: 'right' },
                   }}
                   onChange={async (event) => {
@@ -455,10 +447,7 @@ export default function BeamerDialog({
                     if (!Number.isInteger(parsed)) {
                       return;
                     }
-                    const clamped = Math.min(
-                      Math.max(parsed, 1),
-                      maxGamesFromIndexCeiling,
-                    );
+                    const clamped = Math.max(parsed, 1);
                     setMaxGamesFromIndex(clamped);
                     await window.electron.setMaxGamesFromIndex(clamped);
                   }}
@@ -734,6 +723,15 @@ export default function BeamerDialog({
               {`Could not listen for Beamers: ${fleet.error}`}
             </Alert>
           )}
+          {fleet.ghostBeamerErrors.map((ghostError) => (
+            <Alert
+              key={ghostError}
+              severity="error"
+              style={{ marginTop: '8px' }}
+            >
+              {ghostError}
+            </Alert>
+          ))}
           {error && (
             <Alert
               severity="error"

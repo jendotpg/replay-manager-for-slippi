@@ -307,11 +307,6 @@ export const highlightColor = '#ffee58';
 export const calledColor = '#f9a825';
 export const startedColor = '#0d8225';
 
-// NUM-REPLAYS-SERVED ceiling; mirrors KEEP_MAX in slippi-beamer's config.rs
-export const maxGamesFromIndexCeiling = 16;
-
-export const beamerDownWarnings = ['DRIVE FULL', 'NO WII']; // despite being warnings, these are fatal
-
 export const beamerHealthColor: Record<Beamer['health'], string> = {
   ok: '#31d158',
   starting: '#8a8a8e',

@@ -613,11 +613,8 @@ export type BeamerGame = {
   ports: BeamerPort[];
 };
 
-// healths a beamer can report in its status body; 'unknown' is reserved for
-// beamers that have not reported
-export const BEAMER_HEALTHS = ['ok', 'starting', 'warn', 'error'] as const;
-
-export type BeamerHealth = (typeof BEAMER_HEALTHS)[number] | 'unknown';
+// 'unknown' is reserved for beamers that have not reported
+export type BeamerHealth = 'ok' | 'starting' | 'warn' | 'error' | 'unknown';
 
 export type Beamer = {
   address: string;
@@ -642,11 +639,8 @@ export type BeamerFleet = {
   beamers: LabeledBeamer[];
   browsing: boolean;
   error: string;
+  ghostBeamerErrors: string[];
 };
-
-export const BEAMER_EVENT_KINDS = ['game_started', 'game_finished'] as const;
-
-export type BeamerEventKind = (typeof BEAMER_EVENT_KINDS)[number];
 
 type ReplayDirBase = { dir: string; display: string };
 
@@ -655,26 +649,3 @@ export type ReplayDir =
   | (ReplayDirBase & { dirType: 'deeplink' })
   | (ReplayDirBase & { dirType: 'usb'; usbKey: string })
   | (ReplayDirBase & { dirType: 'beamer'; beamerId: string });
-
-export type BeamerFile = { name: string; size?: number; url: string };
-
-export type BeamerEvent = {
-  event: BeamerEventKind;
-  beamerId: string;
-  beamerName: string;
-  replay: { name: string; size?: number; url: string };
-};
-
-export type BeamerStatusBody = {
-  schema: number;
-  station_id: string;
-  station_name?: string;
-  firmware_version?: string;
-  replay_count?: number;
-  replay_cap?: number;
-  health?: BeamerHealth;
-  warnings?: unknown;
-  secs_since_port_change?: number;
-  secs_since_game_start?: number;
-  game?: unknown;
-};
