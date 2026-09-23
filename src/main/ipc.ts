@@ -14,7 +14,6 @@ import {
   readdir,
   readFile,
   rm,
-  stat,
   unlink,
 } from 'fs/promises';
 import path from 'path';
@@ -121,7 +120,7 @@ import {
   stopListeningAndSend,
 } from './host';
 import { assertInteger, assertString } from '../common/asserts';
-import { resolveHtmlPath } from './util';
+import { measureReplayCache, pathInside, resolveHtmlPath } from './util';
 import { downloadFile } from './download';
 import {
   initBeamers,
@@ -140,7 +139,6 @@ import {
   refreshAllBeamers,
   resetAllBeamers,
   clampMaxGamesFromIndex,
-  beamerFullPath,
 } from './beamer';
 import { beamerDirWritten, cancelBeamerDownload } from './downloadQueue';
 import {
@@ -171,46 +169,6 @@ let entrantsWindow: BrowserWindow | null = null;
 const replayCacheFullPath = path.join(app.getPath('userData'), 'replayCache');
 const protocolLoadFullPath = path.join(replayCacheFullPath, 'protocol');
 const undoDstFullPath = path.join(app.getPath('userData'), 'undo');
-
-async function measureReplayCache(cacheRoot: string) {
-  let files = 0;
-  let bytes = 0;
-
-  const walk = async (dir: string) => {
-    let dirents;
-    try {
-      dirents = await readdir(dir, { withFileTypes: true });
-    } catch {
-      // no cache dir yet - nothing to measure
-      return;
-    }
-    await Promise.all(
-      dirents.map(async (dirent) => {
-        const full = path.join(dir, dirent.name);
-        if (dirent.isDirectory()) {
-          await walk(full);
-          return;
-        }
-        if (
-          !dirent.name.endsWith('.slp') &&
-          !dirent.name.endsWith('.slp.part')
-        ) {
-          return;
-        }
-        try {
-          const stats = await stat(full);
-          files += 1;
-          bytes += stats.size;
-        } catch {
-          // gone between the readdir and the stat...
-        }
-      }),
-    );
-  };
-
-  await walk(cacheRoot);
-  return { files, bytes };
-}
 
 export default function setupIPCs(
   mainWindow: BrowserWindow,
@@ -525,11 +483,6 @@ export default function setupIPCs(
     measureReplayCache(replayCacheFullPath),
   );
 
-  const pathInside = (child: string, parent: string) => {
-    const rel = path.relative(parent, child);
-    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-  };
-
   ipcMain.removeHandler('clearReplayCache');
   ipcMain.handle('clearReplayCache', async () => {
     const cached = (replayDir: ReplayDir) =>
@@ -650,9 +603,6 @@ export default function setupIPCs(
       return Promise.resolve(false);
     }
     if (!undoSrcFullPath) {
-      if (replayDirs.length === 0) {
-        throw new Error('replayDirs empty');
-      }
       if (replayDirs[replayDirs.length - 1].dirType === 'beamer') {
         throw new Error(
           'Beamer replays live in the cache - erase on the beamer or clear the cache in Settings.',
@@ -697,14 +647,6 @@ export default function setupIPCs(
   ipcMain.handle(
     'deleteSelectedReplays',
     async (event, replayPaths: string[], used: boolean) => {
-      const beamerRoot = beamerFullPath;
-      if (
-        replayPaths.some((replayPath) => pathInside(replayPath, beamerRoot))
-      ) {
-        throw new Error(
-          'Beamer replays live in the cache - erase on the beamer or clear the cache in Settings.',
-        );
-      }
       if (trashDir) {
         const trashSubdir = format(new Date(), 'yyyy-MM-dd HHmmss');
         const fullPath = path.join(

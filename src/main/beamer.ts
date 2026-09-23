@@ -93,7 +93,7 @@ class BeamerSchemaError extends Error {
   }
 }
 
-export const beamerFullPath = path.join(
+const beamerFullPath = path.join(
   app.getPath('userData'),
   'replayCache',
   'beamer',

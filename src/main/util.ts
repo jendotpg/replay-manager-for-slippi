@@ -1,6 +1,7 @@
 import os from 'os';
 import { URL } from 'url';
 import path from 'path';
+import { readdir, stat } from 'fs/promises';
 import { execSync } from 'child_process';
 import { LookupOptions } from 'dns';
 import { IPv4, IPv6, parse } from 'ipaddr.js';
@@ -80,4 +81,49 @@ export function lookupInner(addresses: string[], options: LookupOptions) {
     retAddrs = retAddrs.filter((retAddr) => retAddr.family === family);
   }
   return retAddrs;
+}
+
+export function pathInside(child: string, parent: string) {
+  const rel = path.relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+export async function measureReplayCache(cacheRoot: string) {
+  let files = 0;
+  let bytes = 0;
+
+  const walk = async (dir: string) => {
+    let dirents;
+    try {
+      dirents = await readdir(dir, { withFileTypes: true });
+    } catch {
+      // no cache dir yet - nothing to measure
+      return;
+    }
+    await Promise.all(
+      dirents.map(async (dirent) => {
+        const full = path.join(dir, dirent.name);
+        if (dirent.isDirectory()) {
+          await walk(full);
+          return;
+        }
+        if (
+          !dirent.name.endsWith('.slp') &&
+          !dirent.name.endsWith('.slp.part')
+        ) {
+          return;
+        }
+        try {
+          const stats = await stat(full);
+          files += 1;
+          bytes += stats.size;
+        } catch {
+          // gone between the readdir and the stat...
+        }
+      }),
+    );
+  };
+
+  await walk(cacheRoot);
+  return { files, bytes };
 }
