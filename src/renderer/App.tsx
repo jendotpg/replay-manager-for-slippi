@@ -824,7 +824,7 @@ function Hello() {
         const res = await window.electron.getReplaysInDir();
         newReplays = res.replays;
         newInvalidReplays = res.invalidReplays;
-        if (res.dir === walkedDirRef.current) {
+        if (res.dirType === 'beamer' && res.dir === walkedDirRef.current) {
           const keptReplays = new Map(
             replaysRef.current.map((replay) => [replay.fileName, replay]),
           );

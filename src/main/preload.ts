@@ -103,6 +103,7 @@ const electronHandler = {
     replays: Replay[];
     invalidReplays: InvalidReplay[];
     dir: string;
+    dirType: ReplayDir['dirType'];
     replayLoadCount: number;
   }> => ipcRenderer.invoke('getReplaysInDir'),
   writeReplays: (

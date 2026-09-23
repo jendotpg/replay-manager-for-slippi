@@ -673,6 +673,9 @@ export default function setupIPCs(
     const replayDir = undoSrcFullPath
       ? undoDstFullPath
       : replayDirs[replayDirs.length - 1].dir;
+    const dirType: ReplayDir['dirType'] = undoSrcFullPath
+      ? 'local'
+      : replayDirs[replayDirs.length - 1].dirType;
     const retReplays = await getReplaysInDir(replayDir);
     replayLoadCount += 1;
     const currentReplayLoadCount = replayLoadCount;
@@ -712,6 +715,7 @@ export default function setupIPCs(
     return {
       ...retReplays,
       dir: replayDir,
+      dirType,
       replayLoadCount: currentReplayLoadCount,
     };
   });
