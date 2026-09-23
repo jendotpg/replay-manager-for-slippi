@@ -997,7 +997,7 @@ function Hello() {
   const [ejecting, setEjecting] = useState(false);
   const [ejected, setEjected] = useState(false);
   const deleteDir = async (usedFilenames: string[]) => {
-    if (!dirLabel || deleteBlocked) {
+    if (!dir || deleteBlocked) {
       return;
     }
 
@@ -1013,7 +1013,7 @@ function Hello() {
     }
   };
   const deleteSelected = async (used: boolean) => {
-    if (!dirLabel || deleteBlocked) {
+    if (!dir || deleteBlocked) {
       return;
     }
 
@@ -1029,7 +1029,7 @@ function Hello() {
     }
   };
   const deleteUndo = async () => {
-    if (!dirLabel || !undoSubdir || wouldDeleteCopyDir) {
+    if (!dir || !undoSubdir || wouldDeleteCopyDir) {
       return;
     }
 
@@ -2178,7 +2178,7 @@ function Hello() {
       />
       <BeamerDownloadSnackbar
         status={beamerDownloadStatus}
-        onClose={async () => {
+        onClose={() => {
           setBeamerDownloadStatus({ status: 'idle' });
         }}
         onCancel={async () => {
@@ -2257,7 +2257,7 @@ function Hello() {
                 ))}
               {!undoSubdir && (
                 <>
-                  {dirLabel && (
+                  {dir && (
                     <Tooltip
                       arrow
                       title={
@@ -2283,7 +2283,7 @@ function Hello() {
                       </span>
                     </Tooltip>
                   )}
-                  {dirLabel &&
+                  {dir &&
                     dirExists &&
                     !gettingReplays &&
                     (replays.length > 0 || invalidReplays.length > 0) &&
@@ -2368,7 +2368,7 @@ function Hello() {
                         </div>
                       </Tooltip>
                     ))}
-                  {dirLabel && !gettingReplays && (
+                  {dir && !gettingReplays && (
                     <Tooltip
                       arrow
                       title={
@@ -2634,7 +2634,7 @@ function Hello() {
         spacing="8px"
       >
         <TopColumn flexGrow={1} minWidth="600px">
-          {dirLabel &&
+          {dir &&
             !gettingReplays &&
             (dirExists ? (
               <>
@@ -2771,7 +2771,7 @@ function Hello() {
                   : 'Replays folder not found.'}
               </Alert>
             ))}
-          {dirLabel && gettingReplays && (
+          {dir && gettingReplays && (
             <CircularProgress
               size="24px"
               style={{
