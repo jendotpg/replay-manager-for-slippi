@@ -484,7 +484,7 @@ export default function setupIPCs(
       display,
       beamerId: indexBeamerId,
     } = await selectBeamer(beamerId, maxGamesFromIndex);
-    removeReplayDirs((replayDir) => replayDir.dir === dest);
+    replayDirs = replayDirs.filter((replayDir) => replayDir.dir !== dest);
     addReplayDir({
       dir: dest,
       dirType: 'beamer',
@@ -496,9 +496,11 @@ export default function setupIPCs(
 
   ipcMain.removeHandler('refreshFromBeamer');
   ipcMain.handle('refreshFromBeamer', async (event, beamerId: string) => {
-    const dir = beamerReplayDir(beamerId);
-    await refreshFromBeamer(beamerId, dir, maxGamesFromIndex);
-    announceIfActive(dir);
+    await refreshFromBeamer(
+      beamerId,
+      beamerReplayDir(beamerId),
+      maxGamesFromIndex,
+    );
   });
 
   ipcMain.removeHandler('getPreviousBeamerReplay');
@@ -514,9 +516,7 @@ export default function setupIPCs(
   ipcMain.handle(
     'downloadPreviousBeamerReplay',
     async (event, beamerId: string) => {
-      const dir = beamerReplayDir(beamerId);
-      await downloadPreviousBeamerReplay(beamerId, dir);
-      announceIfActive(dir);
+      await downloadPreviousBeamerReplay(beamerId, beamerReplayDir(beamerId));
     },
   );
 

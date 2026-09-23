@@ -27,18 +27,10 @@ export type BeamerDownloadRequest = {
   beamerName: string;
 };
 
-type Batch = {
-  remaining: number;
-  settled: boolean;
-  resolve: () => void;
-};
-
 type Job = {
   key: string;
-  beamerId: string;
-  run: (signal: AbortSignal) => Promise<void>;
   request: BeamerDownloadRequest;
-  batch: Batch;
+  batch: symbol;
 };
 
 export const beamerDirWritten = new EventEmitter<{
@@ -49,16 +41,8 @@ const keyOf = (dest: string, name: string) => path.join(dest, name);
 
 const noSend: (status: SlpDownloadStatus) => void = () => {};
 
-const leaveBatch = (batch: Batch) => {
-  batch.remaining -= 1;
-  if (batch.remaining > 0 || batch.settled) {
-    return;
-  }
-  batch.settled = true;
-  batch.resolve();
-};
-
 type SchedulerHooks = {
+  run: (job: Job, signal: AbortSignal) => Promise<void>;
   onStarted: (job: Job) => void;
   onDone: (job: Job) => void;
   onFailed: (job: Job, failure: DownloadError) => void;
@@ -140,7 +124,7 @@ class Scheduler {
   }
 
   private isCurrent(job: Job) {
-    return job.beamerId === this.currentBeamer;
+    return job.request.beamerId === this.currentBeamer;
   }
 
   private preemptForCurrent() {
@@ -168,8 +152,8 @@ class Scheduler {
     const controller = new AbortController();
     this.active = { job, controller };
     this.hooks.onStarted(job);
-    job
-      .run(controller.signal)
+    this.hooks
+      .run(job, controller.signal)
       .then(() => this.settle(job))
       .catch((error) => this.fail(job, error));
   }
@@ -263,10 +247,6 @@ class Wave {
     this.clearActive();
   }
 
-  recordFailure(key: string, failure: RequestFailure) {
-    this.failures.set(key, failure);
-  }
-
   cancel() {
     this.cancelled = true;
     this.clearActive();
@@ -323,10 +303,11 @@ class Downloads {
   private readonly wave = new Wave();
 
   private readonly scheduler = new Scheduler({
+    run: (job, signal) => this.runDownload(job.request, signal),
     onStarted: () => this.sendStatus(true),
     onDone: (job) => this.onDone(job),
     onFailed: (job, failure) => this.onFailed(job, failure),
-    onCancelled: (job) => this.onCancelled(job),
+    onCancelled: () => this.wave.cancel(),
     onIdle: () => this.finishWave(),
   });
 
@@ -365,15 +346,6 @@ class Downloads {
     );
   }
 
-  recordPullFailure(beamerId: string, beamerName: string, error: unknown) {
-    this.wave.recordFailure(`${beamerId}|`, {
-      label: beamerName,
-      reason: error instanceof Error ? error.message : String(error),
-    });
-    this.sendStatus(true);
-    this.finishWave();
-  }
-
   private async enqueue(
     dest: string,
     files: BeamerFile[],
@@ -391,32 +363,23 @@ class Downloads {
       return;
     }
 
-    await new Promise<void>((resolve) => {
-      const batch: Batch = {
-        remaining: missing.length,
-        settled: false,
-        resolve,
-      };
-      missing.forEach((file) => {
-        const request: BeamerDownloadRequest = {
+    const batch = Symbol('batch');
+    missing.forEach((file) => {
+      this.wave.add(file.size);
+      this.scheduler.add({
+        key: keyOf(dest, file.name),
+        request: {
           dest,
           name: file.name,
           url: file.url,
           size: file.size,
           beamerId,
           beamerName,
-        };
-        this.wave.add(file.size);
-        this.scheduler.add({
-          key: keyOf(dest, file.name),
-          beamerId,
-          request,
-          batch,
-          run: (signal) => this.runDownload(request, signal),
-        });
+        },
+        batch,
       });
-      this.sendStatus(true);
     });
+    this.sendStatus(true);
   }
 
   private async runDownload(
@@ -450,27 +413,17 @@ class Downloads {
   private onDone(job: Job) {
     this.wave.succeeded(job.key, job.request.size);
     beamerDirWritten.emit('dirWritten', job.request.dest);
-    leaveBatch(job.batch);
     this.sendStatus(true);
   }
 
   private onFailed(job: Job, failure: DownloadError) {
     this.failFile(job, failure.message);
-    leaveBatch(job.batch);
     if (failure.unreachable) {
       this.scheduler
         .dropWhere((sibling) => sibling.batch === job.batch)
-        .forEach((sibling) => {
-          this.failFile(sibling, failure.message);
-          leaveBatch(sibling.batch);
-        });
+        .forEach((sibling) => this.failFile(sibling, failure.message));
     }
     this.sendStatus(true);
-  }
-
-  private onCancelled(job: Job) {
-    this.wave.cancel();
-    leaveBatch(job.batch);
   }
 
   private failFile(job: Job, reason: string) {
@@ -505,9 +458,10 @@ class Downloads {
     const sources: DownloadSource[] = [];
     const seen = new Set<string>();
     this.scheduler.inFlight().forEach((job) => {
-      if (!seen.has(job.beamerId)) {
-        seen.add(job.beamerId);
-        sources.push({ beamerId: job.beamerId, label: job.request.beamerName });
+      const { beamerId, beamerName } = job.request;
+      if (!seen.has(beamerId)) {
+        seen.add(beamerId);
+        sources.push({ beamerId, label: beamerName });
       }
     });
 
@@ -551,9 +505,3 @@ export const enqueueBeamerPull = (
 export const enqueueBeamerBackgroundPull = (
   request: BeamerDownloadRequest,
 ): Promise<void> => downloads.backgroundPull(request);
-
-export const recordBeamerPullFailure = (
-  beamerId: string,
-  beamerName: string,
-  error: unknown,
-) => downloads.recordPullFailure(beamerId, beamerName, error);

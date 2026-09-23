@@ -24,7 +24,6 @@ import {
   enqueueBeamerPull,
   initDownloadQueue,
   isBeamerDownloadPending,
-  recordBeamerPullFailure,
 } from './downloadQueue';
 
 const INDEX_ATTEMPTS = 3;
@@ -1193,11 +1192,7 @@ export async function selectBeamer(beamerId: string, maxGames: number) {
 
   await mkdir(dest, { recursive: true });
   rememberBeamer(indexBeamerId, origin, label);
-  enqueueBeamerPull(dest, files.slice(0, maxGames), indexBeamerId, label).catch(
-    (e) => {
-      recordBeamerPullFailure(indexBeamerId, label, e);
-    },
-  );
+  await enqueueBeamerPull(dest, files.slice(0, maxGames), indexBeamerId, label);
   return { dest, display: label, beamerId: indexBeamerId };
 }
 

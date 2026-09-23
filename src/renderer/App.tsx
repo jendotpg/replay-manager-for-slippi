@@ -970,7 +970,6 @@ function Hello() {
     setDownloadingPreviousReplay(true);
     try {
       await window.electron.downloadPreviousBeamerReplay(selectedBeamer);
-      await refreshReplays();
     } catch (e) {
       showErrorDialog([e instanceof Error ? e.message : String(e)]);
     } finally {
@@ -2395,8 +2394,9 @@ function Hello() {
                               } finally {
                                 setRefreshingBeamer(false);
                               }
+                            } else {
+                              refreshReplays();
                             }
-                            refreshReplays();
                           }}
                         >
                           {refreshingBeamer ? (
